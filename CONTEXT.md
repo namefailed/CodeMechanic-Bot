@@ -1,7 +1,7 @@
-# Project Context: ZKA Bug Bounty Bot
+# Project Context: bug-bot
 
 ## Overview
-We are building a 24/7 autonomous Bug Bounty Bot (inspired by the "ZKA Money Printer" and "CodeSentinel" articles). The bot scans open source platforms (like GitHub and Algora) for paid bounties, evaluates them, clones the repos, writes fixes using local AI models, tests them in a sandbox, and submits Pull Requests. 
+We are building a 24/7 autonomous Bug Bounty Bot (inspired by the "bug-bot" and "CodeSentinel" articles). The bot scans open source platforms (like GitHub and Algora) for paid bounties, evaluates them, clones the repos, writes fixes using local AI models, tests them in a sandbox, and submits Pull Requests. 
 
 The primary goal is to run this system entirely locally to achieve zero cloud/API costs and maintain full privacy.
 

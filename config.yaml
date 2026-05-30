@@ -1,5 +1,5 @@
 agent:
-  name: "ZKA Money Printer"
+  name: "bug-bot"
   purpose: "Autonomous bounty hunting"
   
 governance:
@@ -14,5 +14,8 @@ governance:
       
 model:
   provider: "ollama"
-  name: "gemma3:4b"
+  primary: "gemma4:e4b"
+  fallbacks:
+    - "llama3"
+    - "mistral"
   endpoint: "http://localhost:11434"

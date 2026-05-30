@@ -1,0 +1,5 @@
+.env
+__pycache__/
+workspaces/
+audit_logs/
+*.pyc

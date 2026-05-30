@@ -5,6 +5,8 @@ Emits 'BOUNTY_VERIFIED' for legitimate targets, and 'SCAM_DETECTED' for bad ones
 """
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import datetime
 import os
 import logging
@@ -63,10 +65,16 @@ class ScamDetector:
         if self.github_token:
             headers["Authorization"] = f"token {self.github_token}"
 
+        session = requests.Session()
+        retry = Retry(connect=3, read=3, status=3, status_forcelist=[500, 502, 503, 504], backoff_factor=1)
+        adapter = HTTPAdapter(max_retries=retry)
+        session.mount('http://', adapter)
+        session.mount('https://', adapter)
+
         try:
             # 1. Check repository statistics
             repo_url = f"https://api.github.com/repos/{repo_name}"
-            response = requests.get(repo_url, headers=headers, timeout=self.timeout)
+            response = session.get(repo_url, headers=headers, timeout=self.timeout)
             response.raise_for_status()
             repo_data = response.json()
 
@@ -76,6 +84,16 @@ class ScamDetector:
                 logger.warning(f"ScamDetector: {repo_name} rejected - Too few stars ({stars}).")
                 self.publish_event(ScamDetectedEvent(payload={"repo": repo_name, "reason": "Too few stars"}))
                 return
+
+            # Dead Repo Detection
+            pushed_at_str = repo_data.get("pushed_at")
+            if pushed_at_str:
+                pushed_at_date = datetime.datetime.strptime(pushed_at_str, "%Y-%m-%dT%H:%M:%SZ")
+                days_since_push = (datetime.datetime.utcnow() - pushed_at_date).days
+                if days_since_push > 180:
+                    logger.warning(f"ScamDetector: {repo_name} rejected - Dead repo (last push {days_since_push} days ago).")
+                    self.publish_event(ScamDetectedEvent(payload={"repo": repo_name, "reason": "Dead repo"}))
+                    return
 
             # Reject repositories flooded with open issues
             open_issues = repo_data.get("open_issues_count", 0)
@@ -87,7 +105,7 @@ class ScamDetector:
             # 2. Check for merged PR history
             # A repository that has never merged a PR is likely a scam or inactive
             pulls_url = f"https://api.github.com/repos/{repo_name}/pulls?state=closed&per_page=100"
-            pulls_response = requests.get(pulls_url, headers=headers, timeout=self.timeout)
+            pulls_response = session.get(pulls_url, headers=headers, timeout=self.timeout)
             pulls_response.raise_for_status()
             pulls_data = pulls_response.json()
             

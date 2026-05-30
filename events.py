@@ -29,3 +29,7 @@ class ScamDetectedEvent(BaseEvent):
 @dataclass
 class PRReviewedEvent(BaseEvent):
     event_type: str = "PR_REVIEWED"
+
+@dataclass
+class PRRejectedEvent(BaseEvent):
+    event_type: str = "PR_REJECTED"

@@ -5,6 +5,8 @@ Emits 'BOUNTY_FOUND' events when a new bounty matches our criteria.
 """
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import datetime
 import os
 import logging
@@ -51,6 +53,8 @@ class BountyRadar:
         # - label:bounty (Generic)
         # - label:algora (Algora.io bounties)
         # - label:polar (Polar.sh bounties)
+        # - label:gitcoin (Gitcoin bounties)
+        # - label:"up-for-grabs" (Common OSS bounty label)
         queries = [
             # The Speed Game: New bounties (< 48 hours)
             f'is:issue is:open label:bounty created:>={two_days_ago}',
@@ -62,16 +66,30 @@ class BountyRadar:
             f'is:issue is:open label:algora updated:<={fourteen_days_ago}',
             f'is:issue is:open label:polar updated:<={fourteen_days_ago}',
             
+            # 🚀 THE BIG NET (Broad Sweep): Catch everything with low competition
+            'is:issue is:open label:bounty comments:<5',
+            'is:issue is:open label:algora comments:<5',
+            'is:issue is:open label:polar comments:<5',
+            'is:issue is:open label:gitcoin comments:<5',
+            'is:issue is:open label:"up-for-grabs" comments:<5',
+            'is:issue is:open label:"bug-bounty" comments:<5',
+            
             # General fallback for good first issues
             f'"good first issue" bounty is:issue is:open created:>={two_days_ago}'
         ]
 
         found_issues = set()
 
+        session = requests.Session()
+        retry = Retry(connect=3, read=3, status=3, status_forcelist=[500, 502, 503, 504], backoff_factor=1)
+        adapter = HTTPAdapter(max_retries=retry)
+        session.mount('http://', adapter)
+        session.mount('https://', adapter)
+
         for query in queries:
             try:
                 url = f'https://api.github.com/search/issues?q={query}&sort=created&order=desc&per_page=30'
-                response = requests.get(url, headers=headers, timeout=self.timeout)
+                response = session.get(url, headers=headers, timeout=self.timeout)
                 response.raise_for_status()
                 data = response.json()
                 items = data.get("items", [])
@@ -87,6 +105,9 @@ class BountyRadar:
                     is_patience = 'updated:<=' in query
                     
                     # Competition filters
+                    if item.get("assignee") or len(item.get("assignees", [])) > 0:
+                        continue
+                        
                     if not is_patience and comments > 3:
                         # Too much competition for a new bounty
                         continue

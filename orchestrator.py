@@ -22,6 +22,8 @@ from agents.content_engine import ContentEngine
 from agents.devops_monitor import DevOpsMonitor
 from agents.earnings_tracker import EarningsTracker
 from agents.review_tracker import ReviewTracker
+from agents.static_analyzer import StaticAnalyzer
+from agents.pr_maintainer import PRMaintainer
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -108,11 +110,14 @@ class Orchestrator:
         self.devops_monitor = DevOpsMonitor(self.bus.publish)
         self.earnings_tracker = EarningsTracker(self.bus.publish)
         self.review_tracker = ReviewTracker(self.bus.publish)
+        self.static_analyzer = StaticAnalyzer(self.bus.publish)
+        self.pr_maintainer = PRMaintainer(self.bus.publish)
 
     def setup_subscriptions(self):
         """Wires up the event pipeline between agents."""
         self.bus.subscribe("BOUNTY_FOUND", self.scam_detector.evaluate)
         self.bus.subscribe("BOUNTY_VERIFIED", self.pr_engineer.solve_issue)
+        self.bus.subscribe("MAINTAINER_FEEDBACK", self.pr_engineer.solve_issue)
         self.bus.subscribe("PR_READY", self.reviewer.review)
         self.bus.subscribe("PR_SUBMITTED", self.content_engine.draft_post)
         self.bus.subscribe("PR_SUBMITTED", self.devops_monitor.track_ci)
@@ -127,6 +132,8 @@ class Orchestrator:
             while True:
                 logger.info("--- Starting new scan cycle ---")
                 self.radar.scan()
+                self.static_analyzer.scan()
+                self.pr_maintainer.check_prs()
                 self.review_tracker.track()
                 logger.info("--- Scan cycle complete. Sleeping for 15 minutes ---")
                 time.sleep(900) # Scan every 15 mins

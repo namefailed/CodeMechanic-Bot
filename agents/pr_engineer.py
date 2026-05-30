@@ -96,7 +96,7 @@ class PREngineer:
         except requests.exceptions.RequestException as e:
             logger.error(f"PREngineer: Failed to post comment: {e}")
 
-    def gather_context(self, repo_path: str, issue_body: str = "", comments: list = []) -> str:
+    def gather_context(self, repo_path: str, issue_title: str = "", issue_body: str = "", comments: list = []) -> str:
         """
         Performs a 'Context Harvest' to learn the repository's coding style and rules.
         Also extracts any mentioned files from the issue body or comments and injects their code!
@@ -135,9 +135,44 @@ class PREngineer:
             context += "Recent Commits:\n"
             for c in commits:
                 context += f"- {c.message.strip()}\n"
-            # 4. Context RAG: Extract and read mentioned files
-            text_to_search = issue_body + "\n" + "\n".join(comments)
+            # 4. Context RAG: Extract mentioned files AND use TF-IDF to find relevant files
+            text_to_search = issue_title + "\n" + issue_body + "\n" + "\n".join(comments)
             potential_files = set(re.findall(r'[\w/.-]+\.\w+', text_to_search))
+            
+            # TF-IDF Zero-Setup RAG
+            try:
+                from sklearn.feature_extraction.text import TfidfVectorizer
+                from sklearn.metrics.pairwise import cosine_similarity
+                
+                all_files = []
+                file_contents = []
+                for root, dirs, files in os.walk(repo_path):
+                    dirs[:] = [d for d in dirs if d not in ['.git', 'node_modules', 'target', 'venv', '__pycache__', 'dist', 'build', '.idea', '.vscode']]
+                    for f in files:
+                        full_path = os.path.join(root, f)
+                        try:
+                            with open(full_path, "r", encoding="utf-8", errors="ignore") as file_obj:
+                                content = file_obj.read()
+                                if content.strip():
+                                    all_files.append(full_path)
+                                    # Prefix filename so filename matches give high score
+                                    file_contents.append(f"{f} {f} {content}")
+                        except:
+                            pass
+                
+                if file_contents:
+                    vectorizer = TfidfVectorizer(stop_words='english', max_features=10000)
+                    tfidf_matrix = vectorizer.fit_transform(file_contents + [text_to_search])
+                    cosine_sim = cosine_similarity(tfidf_matrix[-1], tfidf_matrix[:-1]).flatten()
+                    top_indices = cosine_sim.argsort()[-3:][::-1]  # Top 3 most similar files
+                    for idx in top_indices:
+                        if cosine_sim[idx] > 0.05:  # Arbitrary relevance threshold
+                            rel_path = os.path.relpath(all_files[idx], repo_path).replace("\\", "/")
+                            potential_files.add(rel_path)
+                            logger.info(f"PREngineer: RAG fetched {rel_path} (score: {cosine_sim[idx]:.3f})")
+            except Exception as e:
+                logger.warning(f"PREngineer: TF-IDF RAG failed (is scikit-learn installed?): {e}")
+
             context += "Relevant Source Code:\n"
             found_any = False
             for f in potential_files:
@@ -286,9 +321,6 @@ class PREngineer:
             self.db.mark_issue(issue_url, repo_name, "PENDING")
             logger.info(f"PREngineer: Starting work on {repo_name} - {issue_title}")
 
-            # 1. Comment-First Strategy
-            self.post_comment(repo_name, issue_number)
-
             # 2. Clone the repository safely
             repo_path = os.path.join(self.workspace_root, repo_name.replace("/", "_"))
             if os.path.exists(repo_path):
@@ -317,14 +349,14 @@ class PREngineer:
                     logger.error(f"PREngineer: Failed to fetch comments: {e}")
 
             # 3. Context Harvest
-            repo_context = self.gather_context(repo_path, issue_body, comments)
+            repo_context = self.gather_context(repo_path, issue_title, issue_body, comments)
         else:
             logger.info(f"PREngineer: Retrying fix based on test/review feedback (Attempt {retry_count + 1})")
             repo_path = payload.get('workspace_path')
             if not repo_path or not os.path.exists(repo_path):
                 logger.error("PREngineer: Workspace missing during retry. Aborting.")
                 return
-            repo_context = self.gather_context(repo_path, issue_body)
+            repo_context = self.gather_context(repo_path, issue_title, issue_body)
 
         # 4. Iterative Generate and Test Loop
         max_internal_retries = 2
@@ -396,6 +428,10 @@ entire file content here
                 # Run Tests
                 success, output = self.run_tests(repo_path)
                 if success:
+                    # Only post the comment-first strategy if we ACTUALLY got a fix.
+                    if not is_retry:
+                        self.post_comment(repo_name, issue_number)
+                        
                     payload["proposed_fix"] = ai_response
                     payload["workspace_path"] = repo_path
                     self.publish_event(PRReadyEvent(payload=payload))

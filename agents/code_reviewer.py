@@ -197,11 +197,32 @@ class CodeReviewer:
             push_url = f"https://{owner_login}:{self.github_token}@github.com/{owner_login}/{forked_repo_name}.git"
             self.run_with_retry(["git", "push", "-f", push_url, branch_name], cwd=workspace_path, capture_output=True, text=True)
             
-            # Create the PR via API
+            # Generate rich PR summary using AI
+            logger.info("CodeReviewer: Generating rich PR summary...")
+            prompt = (
+                f"Write a professional GitHub Pull Request description for this code patch.\n"
+                f"Issue: {issue_title}\n\n"
+                f"Patch:\n{proposed_fix}\n\n"
+                "Provide a brief 'Summary' and a markdown list of 'Changes'. Do not include greetings, just the markdown sections."
+            )
+            
+            ai_summary = ""
+            for model in ["gemma4:e4b", "llama3", "mistral"]:
+                try:
+                    res = requests.post("http://localhost:11434/api/generate", json={"model": model, "prompt": prompt, "stream": False}, timeout=120)
+                    if res.status_code == 200:
+                        ai_summary = res.json().get("response", "").strip()
+                        break
+                except:
+                    continue
+                    
+            if not ai_summary:
+                ai_summary = f"## Summary\nAutomated fix for {issue_title}\n\n## Changes\n- Applied requested changes matching code style\n"
+            
             if self.stealth_mode:
-                pr_body = f"Hey! 👋\n\nI was looking at #{issue_number} and found the root cause. Here is a fix for **{issue_title}**.\n\nI made sure it passes tests locally. Let me know if you'd like any changes!"
+                pr_body = f"Hey! 👋\n\nI was looking at #{issue_number} and found the root cause. Here is a fix for **{issue_title}**.\n\n{ai_summary}\n\nI made sure it passes tests locally. Let me know if you'd like any changes!"
             else:
-                pr_body = f"## Summary\nAutomated fix for {issue_title}\n\n## Changes\n- Applied requested changes matching code style\n\n## Testing\n- Verified logic locally using Docker sandbox\n\nFixes #{issue_number}\n"
+                pr_body = f"{ai_summary}\n\n## Testing\n- Verified logic locally using Docker sandbox\n\nFixes #{issue_number}\n"
             
             logger.info(f"CodeReviewer: Submitting PR via API...")
             repo_info = session.get(f"https://api.github.com/repos/{repo_name}", headers=headers).json()

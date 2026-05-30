@@ -13,13 +13,16 @@ class Database:
     def _init_db(self):
         try:
             with self.conn:
-                self.conn.execute('''
+                self.conn.executescript('''
                     CREATE TABLE IF NOT EXISTS processed_issues (
                         issue_url TEXT PRIMARY KEY,
                         repo_name TEXT,
                         status TEXT,
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
+                    );
+                    CREATE TABLE IF NOT EXISTS processed_comments (
+                        comment_id TEXT PRIMARY KEY
+                    );
                 ''')
         except Exception as e:
             logger.error(f"Database init failed: {e}")
@@ -52,3 +55,19 @@ class Database:
         except Exception as e:
             logger.error(f"Failed to fetch pending issues: {e}")
             return []
+
+    def is_comment_processed(self, comment_id: str) -> bool:
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT 1 FROM processed_comments WHERE comment_id = ?", (comment_id,))
+            return cursor.fetchone() is not None
+        except Exception as e:
+            logger.error(f"Failed to check comment {comment_id}: {e}")
+            return False
+
+    def mark_comment_processed(self, comment_id: str):
+        try:
+            with self.conn:
+                self.conn.execute("INSERT OR IGNORE INTO processed_comments (comment_id) VALUES (?)", (comment_id,))
+        except Exception as e:
+            logger.error(f"Failed to mark comment {comment_id}: {e}")

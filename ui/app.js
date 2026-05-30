@@ -1,0 +1,168 @@
+document.addEventListener('DOMContentLoaded', () => {
+    // Tab Switching
+    const tabBtns = document.querySelectorAll('.tab-btn');
+    const tabContents = document.querySelectorAll('.tab-content');
+
+    tabBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            tabBtns.forEach(b => b.classList.remove('active'));
+            tabContents.forEach(c => c.classList.remove('active'));
+            
+            btn.classList.add('active');
+            document.getElementById(btn.dataset.tab).classList.add('active');
+        });
+    });
+
+    // API Base
+    const API_BASE = 'http://localhost:8000/api';
+
+    // Elements
+    const statusDot = document.getElementById('bot-status-dot');
+    const statusText = document.getElementById('bot-status-text');
+    const toggleBotBtn = document.getElementById('toggle-bot-btn');
+    const terminalOutput = document.getElementById('terminal-output');
+    const prContainer = document.getElementById('pr-container');
+    const aiContainer = document.getElementById('ai-container');
+    const configEditor = document.getElementById('config-editor');
+    const saveConfigBtn = document.getElementById('save-config-btn');
+
+    let botRunning = false;
+
+    // Fetch Status
+    async function fetchStatus() {
+        try {
+            const res = await fetch(`${API_BASE}/status`);
+            const data = await res.json();
+            botRunning = data.status === 'running';
+            
+            if (botRunning) {
+                statusDot.className = 'dot running';
+                statusText.textContent = 'Running';
+                toggleBotBtn.textContent = 'Stop Bot';
+                toggleBotBtn.className = 'action-btn stop';
+            } else {
+                statusDot.className = 'dot stopped';
+                statusText.textContent = 'Stopped';
+                toggleBotBtn.textContent = 'Start Bot';
+                toggleBotBtn.className = 'action-btn';
+            }
+        } catch (e) {
+            console.error("Failed to fetch status", e);
+        }
+    }
+
+    // Toggle Bot
+    toggleBotBtn.addEventListener('click', async () => {
+        const endpoint = botRunning ? '/bot/stop' : '/bot/start';
+        // Basic start, could add stealth toggle later
+        await fetch(`${API_BASE}${endpoint}`, { method: 'POST' });
+        await fetchStatus();
+    });
+
+    // Fetch Terminal Logs
+    async function fetchLogs() {
+        try {
+            const res = await fetch(`${API_BASE}/logs`);
+            const data = await res.json();
+            terminalOutput.textContent = data.logs;
+            // auto scroll
+            terminalOutput.scrollTop = terminalOutput.scrollHeight;
+        } catch(e) {}
+    }
+
+    // Fetch PRs
+    async function fetchPRs() {
+        try {
+            const res = await fetch(`${API_BASE}/prs`);
+            const data = await res.json();
+            
+            if(data.length === 0) {
+                prContainer.innerHTML = '<p style="color: var(--text-secondary)">No PRs tracked yet.</p>';
+                return;
+            }
+            
+            prContainer.innerHTML = data.map(pr => `
+                <div class="pr-card glass-panel">
+                    <div class="pr-status ${pr.status.toLowerCase()}">${pr.status}</div>
+                    <h3>${pr.repo}</h3>
+                    <a href="${pr.issue_url}" target="_blank" style="color: var(--accent); text-decoration: none; font-size: 0.9rem;">View Issue ↗</a>
+                    <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 8px;">Updated: ${new Date(pr.updated_at).toLocaleString()}</div>
+                </div>
+            `).join('');
+        } catch(e) {}
+    }
+
+    // Fetch AI Activity
+    async function fetchAIActivity() {
+        try {
+            const res = await fetch(`${API_BASE}/activity`);
+            const data = await res.json();
+            
+            if(data.length === 0) {
+                aiContainer.innerHTML = '<p style="color: var(--text-secondary)">No AI activity logged yet.</p>';
+                return;
+            }
+            
+            // Show latest first
+            aiContainer.innerHTML = data.reverse().map(act => `
+                <div class="ai-card glass-panel">
+                    <div class="ai-meta">
+                        <span class="ai-agent-badge">${act.agent}</span>
+                        <span>${new Date(act.timestamp * 1000).toLocaleString()}</span>
+                    </div>
+                    <div class="ai-content">
+                        <div class="ai-prompt">${escapeHtml(act.prompt)}</div>
+                        <div class="ai-response">${escapeHtml(act.response)}</div>
+                    </div>
+                </div>
+            `).join('');
+        } catch(e) {}
+    }
+
+    // Fetch Config
+    async function fetchConfig() {
+        try {
+            const res = await fetch(`${API_BASE}/config`);
+            const text = await res.text();
+            // Just displaying raw JSON or YAML. Since we respond with dict, it might be JSON.
+            // Let's format it.
+            const data = JSON.parse(text);
+            // Dump as YAML conceptually or just JSON
+            configEditor.value = JSON.stringify(data, null, 2);
+        } catch(e) {}
+    }
+
+    // Save Config
+    saveConfigBtn.addEventListener('click', async () => {
+        try {
+            const parsed = JSON.parse(configEditor.value);
+            await fetch(`${API_BASE}/config`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(parsed)
+            });
+            saveConfigBtn.textContent = 'Saved!';
+            setTimeout(() => saveConfigBtn.textContent = 'Save Configuration', 2000);
+        } catch(e) {
+            alert("Invalid JSON format");
+        }
+    });
+
+    // Utils
+    function escapeHtml(unsafe) {
+        return (unsafe || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    // Boot
+    fetchStatus();
+    fetchLogs();
+    fetchPRs();
+    fetchAIActivity();
+    fetchConfig();
+
+    // Polling
+    setInterval(fetchStatus, 5000);
+    setInterval(fetchLogs, 2000);
+    setInterval(fetchPRs, 10000);
+    setInterval(fetchAIActivity, 10000);
+});

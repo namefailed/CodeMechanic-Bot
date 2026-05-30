@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BugBot Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar glass-panel">
+            <div class="brand">
+                <div class="logo"></div>
+                <h1>BugBot</h1>
+            </div>
+            
+            <nav class="tabs">
+                <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
+                <button class="tab-btn" data-tab="terminal">Terminal Feed</button>
+                <button class="tab-btn" data-tab="ai">AI Auditing</button>
+                <button class="tab-btn" data-tab="settings">Settings</button>
+            </nav>
+            
+            <div class="bot-control">
+                <div class="status-indicator">
+                    <span id="bot-status-dot" class="dot stopped"></span>
+                    <span id="bot-status-text">Stopped</span>
+                </div>
+                <button id="toggle-bot-btn" class="action-btn">Start Bot</button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="content-area">
+            
+            <!-- Dashboard Tab -->
+            <section id="dashboard" class="tab-content active">
+                <header class="section-header">
+                    <h2>Live Operations</h2>
+                    <p>Track pull requests and active bounties.</p>
+                </header>
+                <div class="pr-grid" id="pr-container">
+                    <!-- PR cards injected here -->
+                </div>
+            </section>
+
+            <!-- Terminal Tab -->
+            <section id="terminal" class="tab-content">
+                <header class="section-header">
+                    <h2>Live Terminal</h2>
+                    <p>Direct output from the orchestrator.</p>
+                </header>
+                <div class="terminal-window glass-panel">
+                    <div class="terminal-header">
+                        <span class="mac-btn close"></span>
+                        <span class="mac-btn min"></span>
+                        <span class="mac-btn max"></span>
+                        <span class="title">bugbot.log</span>
+                    </div>
+                    <pre id="terminal-output" class="terminal-body"></pre>
+                </div>
+            </section>
+
+            <!-- AI Auditing Tab -->
+            <section id="ai" class="tab-content">
+                <header class="section-header">
+                    <h2>AI Activity Feed</h2>
+                    <p>Monitor raw prompts and generated code from the local Ollama models.</p>
+                </header>
+                <div class="ai-feed" id="ai-container">
+                    <!-- AI Activity cards injected here -->
+                </div>
+            </section>
+
+            <!-- Settings Tab -->
+            <section id="settings" class="tab-content">
+                <header class="section-header">
+                    <h2>Configuration</h2>
+                    <p>Manage the config.yaml file visually.</p>
+                </header>
+                <div class="settings-panel glass-panel">
+                    <textarea id="config-editor"></textarea>
+                    <button id="save-config-btn" class="action-btn">Save Configuration</button>
+                </div>
+            </section>
+            
+        </main>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>

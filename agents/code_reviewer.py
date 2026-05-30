@@ -96,6 +96,8 @@ class CodeReviewer:
                 )
                 if response.status_code == 200:
                     review_feedback = response.json().get("response", "")
+                    from utils.logger import log_ollama_activity
+                    log_ollama_activity("CodeReviewer", prompt, review_feedback)
                     break
             except requests.exceptions.RequestException as e:
                 logger.warning(f"CodeReviewer: Review with {model} failed: {e}. Falling back...")
@@ -212,6 +214,8 @@ class CodeReviewer:
                     res = requests.post("http://localhost:11434/api/generate", json={"model": model, "prompt": prompt, "stream": False}, timeout=120)
                     if res.status_code == 200:
                         ai_summary = res.json().get("response", "").strip()
+                        from utils.logger import log_ollama_activity
+                        log_ollama_activity("CodeReviewer (Summary)", prompt, ai_summary)
                         break
                 except:
                     continue

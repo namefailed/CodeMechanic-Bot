@@ -412,6 +412,10 @@ entire file content here
 
             try:
                 ai_response = self.query_ai(prompt)
+                
+                from utils.logger import log_ollama_activity
+                log_ollama_activity("PREngineer", prompt, ai_response)
+                
                 logger.info(f"PREngineer: AI successfully generated a proposed fix of {len(ai_response)} characters.")
                 
                 # Apply files

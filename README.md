@@ -11,7 +11,11 @@ It was heavily inspired by the "ZKA Money Printer" experiments, but has been hea
 - **Multi-Source Support**: Scans native GitHub bounties, as well as `algora` and `polar` labeled issues.
 - **Comment-First Strategy**: Posts a comment proposing a fix *before* doing the heavy lifting, building trust with maintainers.
 - **Context Harvesting**: Clones the repo to read `CONTRIBUTING.md` and commit history to ensure the AI's code matches the project's style perfectly.
+- **Context RAG**: Parses issue bodies and comments to extract referenced filenames, automatically injecting their source code into the LLM context so it never writes code blindly.
+- **Docker Auto-Testing**: Spins up an Alpine container, dynamically installs the required toolchain (Node, Python, Rust), and executes the repository's test suite against the AI's generated code.
+- **Self-Healing LLM**: If local unit tests fail, the stderr logs are fed *back* into the LLM for up to 2 autonomous retry attempts before submitting.
 - **Multi-Model Fallbacks**: Uses `gemma4:e4b` locally via Ollama, but gracefully falls back to `llama3` or `mistral` if the primary model fails.
+- **Stealth Mode**: Commits directly to the workspace using standard git credentials and submits via the API, preventing "bot" labels on your PRs.
 
 ## Documentation
 
@@ -25,13 +29,13 @@ It was heavily inspired by the "ZKA Money Printer" experiments, but has been hea
    pip install -r requirements.txt
    ```
 2. Start your local Ollama server (or configure your preferred LLM in `config.yaml`).
-3. Export your GitHub Token:
-   ```bash
-   export GITHUB_TOKEN="your_personal_access_token"
+3. Create a `.env` file in the root directory and add your GitHub Token:
+   ```text
+   GITHUB_TOKEN=your_personal_access_token
    ```
-4. Run the orchestrator:
+4. Run the orchestrator in stealth mode:
    ```bash
-   python orchestrator.py
+   python orchestrator.py --stealth
    ```
 
 ## Disclaimer

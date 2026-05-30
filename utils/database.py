@@ -1,0 +1,54 @@
+import sqlite3
+import os
+import logging
+
+logger = logging.getLogger(__name__)
+
+class Database:
+    def __init__(self, db_path="bounty_tracker.db"):
+        self.db_path = db_path
+        self.conn = sqlite3.connect(db_path, check_same_thread=False)
+        self._init_db()
+        
+    def _init_db(self):
+        try:
+            with self.conn:
+                self.conn.execute('''
+                    CREATE TABLE IF NOT EXISTS processed_issues (
+                        issue_url TEXT PRIMARY KEY,
+                        repo_name TEXT,
+                        status TEXT,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+        except Exception as e:
+            logger.error(f"Database init failed: {e}")
+            
+    def mark_issue(self, issue_url: str, repo_name: str, status: str):
+        try:
+            with self.conn:
+                self.conn.execute('''
+                    INSERT OR REPLACE INTO processed_issues (issue_url, repo_name, status, updated_at)
+                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                ''', (issue_url, repo_name, status))
+        except Exception as e:
+            logger.error(f"Failed to mark issue {issue_url}: {e}")
+            
+    def get_status(self, issue_url: str) -> str:
+        try:
+            cur = self.conn.cursor()
+            cur.execute("SELECT status FROM processed_issues WHERE issue_url = ?", (issue_url,))
+            row = cur.fetchone()
+            return row[0] if row else None
+        except Exception as e:
+            logger.error(f"Failed to get status for {issue_url}: {e}")
+            return None
+
+    def get_pending_issues(self) -> list:
+        try:
+            cur = self.conn.cursor()
+            cur.execute("SELECT issue_url, repo_name FROM processed_issues WHERE status = 'PENDING'")
+            return [{"issue_url": row[0], "repo": row[1]} for row in cur.fetchall()]
+        except Exception as e:
+            logger.error(f"Failed to fetch pending issues: {e}")
+            return []

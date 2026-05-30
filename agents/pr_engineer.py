@@ -14,7 +14,10 @@ from urllib3.util.retry import Retry
 import git
 import docker
 import subprocess
+import re
 from events import PRReadyEvent
+from utils.github_api import SafeGitHubSession
+from utils.database import Database
 from typing import Callable, Any
 
 # Configure logging
@@ -40,7 +43,10 @@ class PREngineer:
         self.workspace_root = os.path.join(os.getcwd(), "workspaces")
         os.makedirs(self.workspace_root, exist_ok=True)
         self.github_token = os.environ.get("GITHUB_TOKEN", None)
-        self.timeout = 600  # Network timeout in seconds (Increased for heavy local AI generation)
+        self.timeout = 600
+        self.db = Database()
+        
+        # Ensure docker is availableout in seconds (Increased for heavy local AI generation)
         
         try:
             self.docker_client = docker.from_env()
@@ -49,12 +55,8 @@ class PREngineer:
             self.docker_client = None
 
     def get_session(self):
-        session = requests.Session()
-        retry = Retry(connect=3, read=3, status=3, status_forcelist=[500, 502, 503, 504], backoff_factor=1)
-        adapter = HTTPAdapter(max_retries=retry)
-        session.mount('http://', adapter)
-        session.mount('https://', adapter)
-        return session
+        """Returns a configured requests session for AI or API queries."""
+        return SafeGitHubSession()
 
     def post_comment(self, repo_name: str, issue_number: str):
         """
@@ -69,22 +71,35 @@ class PREngineer:
             "Authorization": f"token {self.github_token}"
         }
         
+        stealth_msg = "Hey! I was just looking through the codebase and noticed this issue. Taking a stab at fixing it now, I'll send over a PR if I get it working!"
+        bot_msg = "Hi! I've analyzed the issue and identified the root cause. I'm preparing a minimal fix with tests matching the repo's style. I will submit a PR shortly."
+        
         if self.stealth_mode:
-            comment = "Hey! I was just looking through the codebase and noticed this issue. Taking a stab at fixing it now, I'll send over a PR if I get it working!"
+            comment = stealth_msg
         else:
-            comment = "Hi! I've analyzed the issue and identified the root cause. I'm preparing a minimal fix with tests matching the repo's style. I will submit a PR shortly."
+            comment = bot_msg
             
         url = f"https://api.github.com/repos/{repo_name}/issues/{issue_number}/comments"
         
         try:
             session = self.get_session()
+            
+            # Prevent duplicate comments regardless of current stealth mode
+            res = session.get(url, headers=headers, timeout=self.timeout)
+            if res.status_code == 200:
+                existing_comments = res.json()
+                if any(c.get("body", "") in [stealth_msg, bot_msg] for c in existing_comments):
+                    logger.info(f"PREngineer: Comment already exists on #{issue_number}. Skipping duplicate.")
+                    return
+                    
             session.post(url, headers=headers, json={"body": comment}, timeout=self.timeout)
         except requests.exceptions.RequestException as e:
             logger.error(f"PREngineer: Failed to post comment: {e}")
 
-    def gather_context(self, repo_path: str) -> str:
+    def gather_context(self, repo_path: str, issue_body: str = "", comments: list = []) -> str:
         """
         Performs a 'Context Harvest' to learn the repository's coding style and rules.
+        Also extracts any mentioned files from the issue body or comments and injects their code!
         """
         logger.info("PREngineer: Context Harvest -> Gathering repo style and structure.")
         context = ""
@@ -120,7 +135,24 @@ class PREngineer:
             context += "Recent Commits:\n"
             for c in commits:
                 context += f"- {c.message.strip()}\n"
-            context += "\n"
+            # 4. Context RAG: Extract and read mentioned files
+            text_to_search = issue_body + "\n" + "\n".join(comments)
+            potential_files = set(re.findall(r'[\w/.-]+\.\w+', text_to_search))
+            context += "Relevant Source Code:\n"
+            found_any = False
+            for f in potential_files:
+                # Basic protection against traversing up
+                if ".." in f: continue
+                full_path = os.path.join(repo_path, f.lstrip('/'))
+                if os.path.isfile(full_path) and os.path.exists(full_path):
+                    try:
+                        with open(full_path, "r", encoding="utf-8", errors="ignore") as file_obj:
+                            context += f"--- {f} ---\n{file_obj.read()}\n\n"
+                            found_any = True
+                    except Exception as e:
+                        logger.warning(f"Failed to read extracted file {f}: {e}")
+            if not found_any:
+                context += "No specific files mentioned or found.\n\n"
 
         except Exception as e:
             logger.error(f"PREngineer: Context Harvest failed: {e}")
@@ -153,13 +185,93 @@ class PREngineer:
         
         raise Exception("All fallback models failed to generate a response.")
 
+    def parse_and_apply_files(self, response: str, repo_path: str) -> list[str]:
+        import re
+        pattern = r'<file path="([^"]+)">\s*(.*?)\s*</file>'
+        matches = list(re.finditer(pattern, response, re.DOTALL | re.IGNORECASE))
+        if not matches:
+            logger.warning("PREngineer: No [FILE: ...] blocks found in AI response.")
+            return []
+            
+        modified_files = []
+        for match in matches:
+            filepath = match.group(1).strip()
+            code = match.group(2)
+            if ".." in filepath: continue
+            full_path = os.path.join(repo_path, filepath.lstrip('/'))
+            os.makedirs(os.path.dirname(full_path), exist_ok=True)
+            with open(full_path, "w", encoding="utf-8") as f:
+                f.write(code)
+            logger.info(f"PREngineer: Patched {filepath}")
+            modified_files.append(filepath)
+            
+        return modified_files
+
+    def run_tests(self, repo_path: str) -> tuple[bool, str]:
+        if not self.docker_client:
+            return True, "Docker disabled, skipping tests."
+        
+        cmds = ["apt-get update -qq", "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq build-essential curl git"]
+        if os.path.exists(os.path.join(repo_path, "package.json")):
+            cmds.extend(["curl -fsSL https://deb.nodesource.com/setup_20.x | bash -", "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nodejs", "npm install", "npx eslint . --no-error-on-unmatched-pattern 2>/dev/null || true", "npm test"])
+        elif os.path.exists(os.path.join(repo_path, "requirements.txt")) or os.path.exists(os.path.join(repo_path, "setup.py")) or os.path.exists(os.path.join(repo_path, "pyproject.toml")):
+            cmds.extend(["DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3 python3-pip python3-venv", "python3 -m venv venv", ". venv/bin/activate", "pip install pytest flake8", "pip install -e . 2>/dev/null || pip install -r requirements.txt 2>/dev/null", "flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics || true", "pytest"])
+        elif os.path.exists(os.path.join(repo_path, "Cargo.toml")):
+            cmds.extend(["curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y", "export PATH=\"$HOME/.cargo/bin:$PATH\"", "cargo check", "cargo test"])
+        elif os.path.exists(os.path.join(repo_path, "go.mod")):
+            cmds.extend(["DEBIAN_FRONTEND=noninteractive apt-get install -y -qq golang", "go build ./...", "go test ./..."])
+        elif os.path.exists(os.path.join(repo_path, "pom.xml")):
+            cmds.extend(["DEBIAN_FRONTEND=noninteractive apt-get install -y -qq maven openjdk-17-jdk", "mvn test"])
+        elif os.path.exists(os.path.join(repo_path, "Gemfile")):
+            cmds.extend(["DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ruby ruby-dev bundler", "bundle install", "bundle exec rspec"])
+        elif os.path.exists(os.path.join(repo_path, "composer.json")):
+            cmds.extend(["DEBIAN_FRONTEND=noninteractive apt-get install -y -qq php composer", "composer install", "vendor/bin/phpunit"])
+        else:
+            return True, "No standard tests found."
+
+        script = " && ".join(cmds)
+        try:
+            logger.info("PREngineer: Running sandbox tests...")
+            container = self.docker_client.containers.run(
+                "ubuntu:22.04",
+                command=["sh", "-c", script],
+                volumes={repo_path: {'bind': '/workspace', 'mode': 'rw'}},
+                working_dir="/workspace",
+                detach=True
+            )
+            try:
+                result = container.wait(timeout=300)
+                logs = container.logs().decode("utf-8", errors="ignore")
+                container.remove(force=True)
+                
+                if result.get("StatusCode") == 0:
+                    logger.info("PREngineer: Tests passed!")
+                    return True, logs
+                else:
+                    if "Missing script: \"test\"" in logs or "Missing script: test" in logs:
+                        logger.info("PREngineer: Project has no tests configured. Treating successful build as a pass.")
+                        return True, logs
+                    logger.warning(f"PREngineer: Tests failed!\n{logs}")
+                    return False, logs
+            except requests.exceptions.ReadTimeout:
+                logger.error("PREngineer: Tests timed out after 5 minutes! Killing container.")
+                container.stop()
+                container.remove(force=True)
+                return False, "Tests timed out and were killed to prevent infinite loops."
+        except Exception as e:
+            logger.error(f"PREngineer: Docker error: {e}")
+            return False, str(e)
+
     def solve_issue(self, payload: dict):
         """
         The main pipeline to generate a fix for an issue.
         """
         repo_name = payload.get('repo')
         issue_title = payload.get('issue_title')
+        issue_body = payload.get('issue_body', '')
         issue_number = payload.get('issue_number')
+        
+        issue_url = payload.get('issue_url', '')
         
         if not repo_name or not issue_title:
             logger.error("PREngineer: Invalid payload received. Missing repo or title.")
@@ -170,6 +282,8 @@ class PREngineer:
         reviewer_feedback = payload.get('reviewer_feedback', '')
         
         if not is_retry:
+            # Mark issue as pending in DB
+            self.db.mark_issue(issue_url, repo_name, "PENDING")
             logger.info(f"PREngineer: Starting work on {repo_name} - {issue_title}")
 
             # 1. Comment-First Strategy
@@ -186,43 +300,42 @@ class PREngineer:
             
             try:
                 logger.info(f"PREngineer: Cloning https://github.com/{repo_name}.git ...")
-                git.Repo.clone_from(f"https://github.com/{repo_name}.git", repo_path)
+                git.Repo.clone_from(f"https://github.com/{repo_name}.git", repo_path, depth=1)
             except Exception as e:
                 logger.error(f"PREngineer: Failed to clone {repo_name}: {e}")
                 return
 
+            # Fetch issue comments
+            comments = []
+            if self.github_token and issue_number:
+                try:
+                    url = f"https://api.github.com/repos/{repo_name}/issues/{issue_number}/comments"
+                    res = self.get_session().get(url, headers={"Authorization": f"token {self.github_token}"}, timeout=30)
+                    if res.status_code == 200:
+                        comments = [c.get("body", "") for c in res.json()]
+                except Exception as e:
+                    logger.error(f"PREngineer: Failed to fetch comments: {e}")
+
             # 3. Context Harvest
-            repo_context = self.gather_context(repo_path)
+            repo_context = self.gather_context(repo_path, issue_body, comments)
         else:
-            logger.info(f"PREngineer: Retrying fix based on CodeReviewer feedback (Attempt {retry_count + 1})")
+            logger.info(f"PREngineer: Retrying fix based on test/review feedback (Attempt {retry_count + 1})")
             repo_path = payload.get('workspace_path')
             if not repo_path or not os.path.exists(repo_path):
                 logger.error("PREngineer: Workspace missing during retry. Aborting.")
                 return
-            repo_context = self.gather_context(repo_path)
+            repo_context = self.gather_context(repo_path, issue_body)
 
-        # 4. Prepare Sandbox Container
-        if not self.docker_client:
-            logger.info("PREngineer: Docker is not available. Skipping sandbox execution.")
-        else:
-            try:
-                logger.info(f"PREngineer: Spinning up secure Docker sandbox for {repo_name}...")
-                container = self.docker_client.containers.run(
-                    "alpine:latest",
-                    command="sleep 3600",
-                    volumes={repo_path: {'bind': '/workspace', 'mode': 'rw'}},
-                    working_dir="/workspace",
-                    detach=True,
-                    remove=True
-                )
-                logger.info(f"PREngineer: Sandbox ready. Container ID: {container.short_id}")
-                container.stop()
-            except Exception as e:
-                logger.error(f"PREngineer: Sandbox failed: {e}")
-
-        # 5. Query Local AI (with Fallback)
-        if not is_retry:
-            prompt = f"""You are a senior open-source contributor.
+        # 4. Iterative Generate and Test Loop
+        max_internal_retries = 2
+        test_feedback = ""
+        
+        for attempt in range(max_internal_retries + 1):
+            if attempt > 0:
+                logger.info(f"PREngineer: Internal test retry {attempt}/{max_internal_retries}")
+                
+            if not is_retry and attempt == 0:
+                prompt = f"""You are a senior open-source contributor.
 
 RULES:
 1. Read the existing code style and MATCH IT EXACTLY
@@ -231,6 +344,10 @@ RULES:
 4. Follow the commit message convention (look at git log)
 5. Keep changes minimal — fix only what the issue describes
 6. Never refactor unrelated code
+7. OUTPUT FORMAT REQUIRED: To modify a file, you MUST use XML tags. Do not use markdown backticks for the code. Output exactly like this:
+<file path="path/to/file.ext">
+entire file content here
+</file>
 
 CONTEXT:
 {repo_context}
@@ -239,31 +356,61 @@ ISSUE:
 {issue_title}
 
 Respond with only the code changes needed and a summary for the PR description."""
-        else:
-            previous_fix = payload.get('proposed_fix', '')
-            prompt = f"""You are a senior open-source contributor. You previously wrote this fix for the issue '{issue_title}':
+            else:
+                previous_fix = payload.get('proposed_fix', '')
+                feedback_str = reviewer_feedback if (is_retry and attempt == 0) else test_feedback
+                source = "Code Reviewer" if (is_retry and attempt == 0) else "Unit Tests"
+                
+                prompt = f"""You are a senior open-source contributor. You previously wrote this fix for the issue '{issue_title}':
 
 {previous_fix}
 
-However, the Code Reviewer REJECTED it with the following feedback:
+However, the {source} REJECTED it with the following feedback/errors:
 
-{reviewer_feedback}
+{feedback_str}
 
 CONTEXT:
 {repo_context}
 
-Please provide a completely revised fix that explicitly addresses all of the reviewer's security and style issues. Respond with only the code changes needed and a summary for the PR description."""
+Please provide a completely revised fix. 
+OUTPUT FORMAT REQUIRED: To modify a file, you MUST use XML tags. Do not use markdown backticks for the code. Output exactly like this:
+<file path="path/to/file.ext">
+entire file content here
+</file>"""
 
-        try:
-            ai_response = self.query_ai(prompt)
-            logger.info(f"PREngineer: AI successfully generated a proposed fix of {len(ai_response)} characters.")
-            logger.info(f"--- AI PROPOSED FIX START ---\n{ai_response}\n--- AI PROPOSED FIX END ---")
+            try:
+                ai_response = self.query_ai(prompt)
+                logger.info(f"PREngineer: AI successfully generated a proposed fix of {len(ai_response)} characters.")
+                
+                # Apply files
+                modified_files = self.parse_and_apply_files(ai_response, repo_path)
+                
+                if not modified_files:
+                    logger.warning("PREngineer: AI response did not contain valid file modifications.")
+                    test_feedback = "You failed to use the <file path=\"...\">...</file> format. No files were modified. You MUST format your code using the XML tags exactly as requested."
+                    payload["proposed_fix"] = ai_response
+                    continue
+                    
+                payload["modified_files"] = modified_files
+                
+                # Run Tests
+                success, output = self.run_tests(repo_path)
+                if success:
+                    payload["proposed_fix"] = ai_response
+                    payload["workspace_path"] = repo_path
+                    self.publish_event(PRReadyEvent(payload=payload))
+                    return
+                else:
+                    test_feedback = output
+                    payload["proposed_fix"] = ai_response # Save for next prompt
+            except Exception as e:
+                logger.error(f"PREngineer: Solution generation failed: {e}")
+                return
+                
+        if "modified_files" not in payload:
+            logger.error("PREngineer: Failed to generate any valid patches after max retries. Aborting PR.")
+            return
             
-            payload["proposed_fix"] = ai_response
-            payload["workspace_path"] = repo_path
-            
-            # Emit event to pass to CodeReviewer
-            self.publish_event(PRReadyEvent(payload=payload))
-            
-        except Exception as e:
-            logger.error(f"PREngineer: Solution generation failed: {e}")
+        logger.error("PREngineer: Failed to pass tests after max retries. Emitting PR anyway for manual review.")
+        payload["workspace_path"] = repo_path
+        self.publish_event(PRReadyEvent(payload=payload))

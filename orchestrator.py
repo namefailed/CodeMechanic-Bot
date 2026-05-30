@@ -11,8 +11,9 @@ import yaml
 import logging
 import argparse
 from typing import Callable, Dict, List
-from events import BaseEvent
+from events import BaseEvent, BountyVerifiedEvent
 
+from utils.database import Database
 from agents.bounty_radar import BountyRadar
 from agents.scam_detector import ScamDetector
 from agents.pr_engineer import PREngineer
@@ -56,9 +57,26 @@ class Orchestrator:
     def __init__(self, config_path: str = "config.yaml", stealth_mode: bool = False):
         self.bus = EventBus()
         self.stealth_mode = stealth_mode
+        self.db = Database()
         self.load_config(config_path)
         self.init_agents()
         self.setup_subscriptions()
+        self.resume_pending_tasks()
+
+    def resume_pending_tasks(self):
+        """Resume any issues that were PENDING if the bot crashed mid-execution."""
+        pending = self.db.get_pending_issues()
+        if pending:
+            logger.info(f"Orchestrator: Found {len(pending)} PENDING issues from a previous run. Resuming...")
+            for issue in pending:
+                # We emit BOUNTY_VERIFIED to drop it straight into PREngineer
+                payload = {
+                    "issue_url": issue["issue_url"],
+                    "repo": issue["repo"],
+                    "issue_title": "Resumed Task",
+                    "issue_number": issue["issue_url"].split("/")[-1]
+                }
+                self.bus.publish(BountyVerifiedEvent(payload=payload))
 
     def load_config(self, config_path: str):
         """Loads configuration settings from a YAML file and .env variables."""
@@ -110,8 +128,8 @@ class Orchestrator:
                 logger.info("--- Starting new scan cycle ---")
                 self.radar.scan()
                 self.review_tracker.track()
-                logger.info("--- Scan cycle complete. Sleeping for 30 minutes ---")
-                time.sleep(1800) # Scan every 30 mins
+                logger.info("--- Scan cycle complete. Sleeping for 15 minutes ---")
+                time.sleep(900) # Scan every 15 mins
         except KeyboardInterrupt:
             logger.info("\nShutting down Orchestrator gracefully.")
         except Exception as e:

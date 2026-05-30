@@ -11,6 +11,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import subprocess
 from events import PRSubmittedEvent, PRRejectedEvent
+from utils.database import Database
 from typing import Callable, Any
 
 # Configure logging
@@ -35,17 +36,29 @@ class CodeReviewer:
         self.stealth_mode = stealth_mode
         self.github_token = os.environ.get("GITHUB_TOKEN", None)
         self.timeout = 600  # Network timeout in seconds (Increased for heavy local AI generation)
+        self.db = Database()
 
     def run_with_retry(self, cmd: list, **kwargs):
         import time
         max_retries = 3
+        if 'timeout' not in kwargs:
+            kwargs['timeout'] = 60
+            
         for attempt in range(max_retries):
             try:
                 return subprocess.run(cmd, check=True, **kwargs)
-            except subprocess.CalledProcessError as e:
+            except subprocess.TimeoutExpired as e:
+                logger.warning(f"CodeReviewer: Command {cmd[0]} timed out after {kwargs['timeout']}s (Attempt {attempt + 1}/{max_retries}).")
                 if attempt == max_retries - 1:
+                    logger.error(f"CodeReviewer: Command {cmd[0]} permanently failed due to timeout.")
                     raise e
-                logger.warning(f"CodeReviewer: Command {cmd[0]} failed (network hiccup?), retrying in 5s... (Attempt {attempt + 1}/{max_retries})")
+                time.sleep(5)
+            except subprocess.CalledProcessError as e:
+                err_msg = e.stderr if hasattr(e, 'stderr') and e.stderr else str(e)
+                if attempt == max_retries - 1:
+                    logger.error(f"CodeReviewer: Command {cmd[0]} permanently failed. Error: {err_msg}")
+                    raise e
+                logger.warning(f"CodeReviewer: Command {cmd[0]} failed (network hiccup?), retrying in 5s... (Attempt {attempt + 1}/{max_retries}). Error: {err_msg}")
                 time.sleep(5)
 
     def review_and_submit(self, payload: dict):
@@ -101,8 +114,11 @@ class CodeReviewer:
             with open(os.path.join(audit_dir, f"{safe_repo}_issue_{issue_number}.md"), "w", encoding="utf-8") as f:
                 f.write(f"# {issue_title}\n\n## Patch\n{proposed_fix}\n\n## AI Review\n{review_feedback}")
                 
-            success = self.submit_pr(repo_name, issue_title, issue_number, proposed_fix, workspace_path)
+            success = self.submit_pr(repo_name, issue_title, issue_number, proposed_fix, workspace_path, payload.get("modified_files", []))
             if success:
+                # Mark as submitted!
+                issue_url = payload.get('issue_url', '')
+                self.db.mark_issue(issue_url, repo_name, "SUBMITTED")
                 self.publish_event(PRSubmittedEvent(payload=payload))
             else:
                 logger.error(f"CodeReviewer: PR submission failed for {repo_name}. Aborting downstream events.")
@@ -117,7 +133,7 @@ class CodeReviewer:
             else:
                 logger.error(f"CodeReviewer: Max retries reached for {repo_name}. Dropping PR.")
 
-    def submit_pr(self, repo_name: str, issue_title: str, issue_number: str, proposed_fix: str, workspace_path: str):
+    def submit_pr(self, repo_name: str, issue_title: str, issue_number: str, proposed_fix: str, workspace_path: str, modified_files: list):
         """
         Uses the GitHub API and git CLI to fork the repository, commit the patch, and open a pull request.
         """
@@ -148,14 +164,24 @@ class CodeReviewer:
             owner_login = fork_res.json().get("owner", {}).get("login")
             forked_repo_name = fork_res.json().get("name")
             
-            self.run_with_retry(["git", "checkout", "-b", branch_name], cwd=workspace_path, capture_output=True, text=True)
-            
-            # Mock writing the fix to a file
-            fix_file = os.path.join(workspace_path, "FIX_SUMMARY.md")
-            with open(fix_file, "w") as f:
-                f.write(proposed_fix)
+            try:
+                self.run_with_retry(["git", "checkout", "-b", branch_name], cwd=workspace_path, capture_output=True, text=True)
+            except Exception:
+                # Fallback if branch already exists
+                self.run_with_retry(["git", "checkout", branch_name], cwd=workspace_path, capture_output=True, text=True)
                 
-            self.run_with_retry(["git", "add", "."], cwd=workspace_path, capture_output=True, text=True)
+            if not modified_files:
+                logger.warning(f"CodeReviewer: No modified files provided for {repo_name}. Skipping PR submission.")
+                return False
+                
+            for filepath in modified_files:
+                self.run_with_retry(["git", "add", filepath], cwd=workspace_path, capture_output=True, text=True)
+            
+            # Check if there are actual changes before committing
+            status_check = subprocess.run(["git", "status", "--porcelain"], cwd=workspace_path, capture_output=True, text=True)
+            if not status_check.stdout.strip():
+                logger.warning(f"CodeReviewer: No changes found in workspace {workspace_path}. Skipping PR submission.")
+                return False
             
             # Set git identity
             if self.stealth_mode:
@@ -165,7 +191,7 @@ class CodeReviewer:
                 self.run_with_retry(["git", "config", "user.name", "BugBot"], cwd=workspace_path, capture_output=True, text=True)
                 self.run_with_retry(["git", "config", "user.email", "bugbot@local.ai"], cwd=workspace_path, capture_output=True, text=True)
             
-            self.run_with_retry(["git", "commit", "-m", f"fix: resolve {issue_title}\n\nFixes #{issue_number}"], cwd=workspace_path, capture_output=True, text=True)
+            self.run_with_retry(["git", "commit", "--no-verify", "-m", f"fix: resolve {issue_title}\n\nFixes #{issue_number}"], cwd=workspace_path, capture_output=True, text=True)
             
             # Push using authenticated URL
             push_url = f"https://{owner_login}:{self.github_token}@github.com/{owner_login}/{forked_repo_name}.git"

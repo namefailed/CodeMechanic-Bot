@@ -69,14 +69,15 @@ class Orchestrator:
         self.bus = EventBus()
         self.stealth_mode = stealth_mode
         self.db = Database()
-        self.load_config(config_path)
-        self.init_agents()
-        self.setup_subscriptions()
-        self.resume_pending_tasks()
         
         # Synchronization event: True when bounty scan is active
         self.bounty_active_event = threading.Event()
         self.bounty_active_event.clear()
+        
+        self.load_config(config_path)
+        self.init_agents()
+        self.setup_subscriptions()
+        self.resume_pending_tasks()
 
     def resume_pending_tasks(self):
         """Resume any issues that were PENDING if the bot crashed mid-execution."""

@@ -16,5 +16,5 @@ jobs:
 
       - name: Push to Bot Fork
         run: |
-          git remote add bot-fork https://x-access-token:${{ secrets.BOT_GITHUB_TOKEN }}@github.com/CodeMechanic-Bot/CodeMechanic-Bot.git
+          git remote add bot-fork https://x-access-token:${{ secrets.BOT_GITHUB_TOKEN }}@github.com/CodeMechanic-Bot/CodeMechanic-Engine.git
           git push bot-fork master --force

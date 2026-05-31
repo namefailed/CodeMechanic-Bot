@@ -129,6 +129,26 @@ def get_activity():
     except:
         return []
 
+@app.get("/api/analytics")
+def get_analytics():
+    if not os.path.exists(DB_PATH):
+        return {"status_counts": {}, "daily_activity": {}}
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cur = conn.cursor()
+        
+        # Status counts
+        cur.execute("SELECT status, COUNT(*) FROM processed_issues GROUP BY status")
+        status_counts = {row[0]: row[1] for row in cur.fetchall()}
+        
+        # Daily activity (last 7 days)
+        cur.execute("SELECT date(updated_at), COUNT(*) FROM processed_issues WHERE updated_at >= date('now', '-7 days') GROUP BY date(updated_at) ORDER BY date(updated_at)")
+        daily_activity = {row[0]: row[1] for row in cur.fetchall()}
+        
+        return {"status_counts": status_counts, "daily_activity": daily_activity}
+    except Exception as e:
+        return {"status_counts": {}, "daily_activity": {}, "error": str(e)}
+
 @app.get("/api/logs")
 def get_logs():
     if not os.path.exists(ORCHESTRATOR_LOG):

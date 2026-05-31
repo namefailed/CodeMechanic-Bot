@@ -73,11 +73,11 @@
                 </header>
                 <div class="analytics-grid">
                     <div class="glass-panel chart-container">
-                        <h3>Vulnerability Types Found</h3>
+                        <h3>PR Resolution Status</h3>
                         <canvas id="vulnChart"></canvas>
                     </div>
                     <div class="glass-panel chart-container">
-                        <h3>Estimated ROI (Bounties)</h3>
+                        <h3>Daily Processing Volume</h3>
                         <canvas id="roiChart"></canvas>
                     </div>
                 </div>
@@ -95,6 +95,7 @@
                         <span class="mac-btn min"></span>
                         <span class="mac-btn max"></span>
                         <span class="title">orchestrator.log</span>
+                        <button id="copy-logs-btn" class="action-btn" style="padding: 4px 8px; font-size: 0.7rem; width: auto; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">Copy</button>
                     </div>
                     <pre id="terminal-output" class="terminal-body"></pre>
                 </div>

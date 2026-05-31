@@ -80,9 +80,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Color code terminal logs
     function colorizeLogs(logs) {
         return escapeHtml(logs)
-            .replace(/(ERROR|Exception|Failed|violently reject)/gi, '<span style="color: var(--danger)">$1</span>')
-            .replace(/(SUCCESS|APPROVED|Submitting PR)/gi, '<span style="color: var(--success)">$1</span>')
-            .replace(/(WARNING)/gi, '<span style="color: var(--warning)">$1</span>');
+            .replace(/^(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2},\d{3})/gm, '<span style="color: var(--text-secondary)">$1</span>')
+            .replace(/-\s(INFO)\s-/g, '- <span style="color: var(--accent)">$1</span> -')
+            .replace(/-\s(WARNING)\s-/g, '- <span style="color: #fbbf24">$1</span> -')
+            .replace(/-\s(ERROR)\s-/g, '- <span style="color: var(--danger)">$1</span> -')
+            .replace(/(Exception|Failed|violently reject)/gi, '<span style="color: var(--danger)">$1</span>')
+            .replace(/(SUCCESS|APPROVED|Submitting PR)/gi, '<span style="color: var(--success)">$1</span>');
     }
 
     // Fetch Terminal Logs
@@ -101,6 +104,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 terminalOutput.scrollTop = terminalOutput.scrollHeight;
             }
         } catch(e) {}
+    }
+
+    const copyLogsBtn = document.getElementById('copy-logs-btn');
+    if (copyLogsBtn) {
+        copyLogsBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(terminalOutput.innerText);
+            const originalText = copyLogsBtn.textContent;
+            copyLogsBtn.textContent = 'Copied!';
+            setTimeout(() => copyLogsBtn.textContent = originalText, 2000);
+        });
     }
 
     // Fetch PRs
@@ -279,37 +292,82 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    let vulnChartInstance = null;
+    let roiChartInstance = null;
+
+    async function fetchAnalytics() {
+        try {
+            const res = await fetch(`${API_BASE}/analytics`);
+            const data = await res.json();
+            
+            const statusCounts = data.status_counts || {};
+            const chartData = [
+                statusCounts['SUBMITTED'] || 0,
+                (statusCounts['PENDING'] || 0) + (statusCounts['AWAITING_APPROVAL'] || 0),
+                statusCounts['ABORTED'] || 0,
+                (statusCounts['REJECTED'] || 0) + (statusCounts['REJECTED_MANUALLY'] || 0)
+            ];
+            
+            if (vulnChartInstance) {
+                vulnChartInstance.data.datasets[0].data = chartData;
+                vulnChartInstance.update();
+            }
+            
+            const daily = data.daily_activity || {};
+            const days = [];
+            const counts = [];
+            for(let i=6; i>=0; i--) {
+                const d = new Date();
+                d.setDate(d.getDate() - i);
+                const dateStr = d.toISOString().split('T')[0];
+                days.push(d.toLocaleDateString(undefined, {weekday: 'short'}));
+                counts.push(daily[dateStr] || 0);
+            }
+            
+            if (roiChartInstance) {
+                roiChartInstance.data.labels = days;
+                roiChartInstance.data.datasets[0].data = counts;
+                roiChartInstance.update();
+            }
+        } catch(e) {}
+    }
+
     // Analytics Charts
     function initCharts() {
         const vulnCtx = document.getElementById('vulnChart');
         const roiCtx = document.getElementById('roiChart');
         if(!vulnCtx || !roiCtx) return;
 
-        new Chart(vulnCtx, {
+        vulnChartInstance = new Chart(vulnCtx, {
             type: 'doughnut',
             data: {
-                labels: ['Logic Bugs', 'Secrets (Gitleaks)', 'CVEs (Trivy)'],
+                labels: ['Submitted', 'Pending', 'Aborted', 'Rejected'],
                 datasets: [{
-                    data: [12, 19, 3],
-                    backgroundColor: ['#00e5ff', '#ff3366', '#ffcc00']
+                    data: [0, 0, 0, 0],
+                    backgroundColor: ['#10b981', '#fbbf24', '#f59e0b', '#ef4444'],
+                    borderWidth: 0
                 }]
             },
-            options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { color: '#fff' } } } }
+            options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { color: '#cdd6f4' } } } }
         });
 
-        new Chart(roiCtx, {
+        roiChartInstance = new Chart(roiCtx, {
             type: 'line',
             data: {
-                labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
+                labels: [],
                 datasets: [{
-                    label: 'Estimated Earnings ($)',
-                    data: [0, 50, 150, 300],
-                    borderColor: '#00e5ff',
+                    label: 'Issues Processed',
+                    data: [],
+                    borderColor: '#cba6f7',
+                    backgroundColor: 'rgba(203, 166, 247, 0.1)',
+                    fill: true,
                     tension: 0.4
                 }]
             },
-            options: { responsive: true, scales: { y: { ticks: { color: '#fff' } }, x: { ticks: { color: '#fff' } } }, plugins: { legend: { labels: { color: '#fff' } } } }
+            options: { responsive: true, scales: { y: { ticks: { color: '#a6adc8' }, grid: {color: 'rgba(255,255,255,0.05)'} }, x: { ticks: { color: '#a6adc8' }, grid: {color: 'rgba(255,255,255,0.05)'} } }, plugins: { legend: { labels: { color: '#cdd6f4' } } } }
         });
+        
+        fetchAnalytics();
     }
 
     // Boot
@@ -327,4 +385,5 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(fetchPRs, 10000);
     setInterval(fetchAIActivity, 10000);
     setInterval(fetchApprovals, 10000);
+    setInterval(fetchAnalytics, 10000);
 });

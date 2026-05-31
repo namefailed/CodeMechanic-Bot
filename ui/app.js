@@ -10,6 +10,15 @@ document.addEventListener('DOMContentLoaded', () => {
             
             btn.classList.add('active');
             document.getElementById(btn.dataset.tab).classList.add('active');
+
+            // Fix CodeMirror rendering issues when switching from a hidden state
+            setTimeout(() => {
+                if (btn.dataset.tab === 'settings' && typeof editor !== 'undefined') {
+                    editor.refresh();
+                } else if (btn.dataset.tab === 'approvals' && typeof approvalEditors !== 'undefined') {
+                    Object.values(approvalEditors).forEach(cm => cm.refresh());
+                }
+            }, 10);
         });
     });
 

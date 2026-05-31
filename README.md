@@ -21,11 +21,12 @@ Runs continuously in the background (pausing only when the Bounty Hunter wakes u
 
 ## Core Capabilities
 
-- **Strict Anti-Slop CodeReviewer**: A notoriously strict secondary agent that audits every generated patch. It will violently reject any proposed PR that smells like "AI Slop", removes necessary comments, or fails to precisely match the host repository's style.
+- **Strict Anti-Slop CodeReviewer**: A notoriously strict secondary agent that audits every generated patch. It will violently reject any proposed PR that smells like "AI Slop", removes necessary comments, or fails to precisely match the host repository's style. Uses robust Git branching (`checkout -B`) to ensure pristine states during retries.
 - **Few-Shot RAG Context**: Parses issue bodies and securely injects only highly-relevant source code into the local LLM's context, strictly capped to prevent hallucination on weaker machines.
-- **Docker Auto-Testing**: Spins up an Alpine container, dynamically installs the required toolchain (Node, Python, Rust), and executes the repository's test suite against the AI's generated code.
+- **Docker Auto-Testing**: Spins up an Alpine container, dynamically installs the required toolchain (Node, Python, Rust), and executes the repository's test suite against the AI's generated code. Dynamically reconnects to Docker daemons to survive host restarts.
 - **Self-Healing LLM**: If local unit tests fail, the stderr logs are fed *back* into the LLM for up to 2 autonomous retry attempts before submitting.
 - **Multi-Model Fallbacks**: Uses `gemma4:e4b` locally via Ollama, but gracefully falls back to `llama3` or `mistral` if the primary model fails.
+- **Premium Web Dashboard**: A built-in FastAPI web dashboard featuring a stunning Catppuccin Mocha theme, glassmorphism UI, and a fully functional CodeMirror editor with Vim keybindings for manual config overrides.
 
 ## Documentation
 

@@ -1,6 +1,6 @@
-# Bug-Bot Architecture
+# CodeMechanic-Bot Architecture
 
-Bug-Bot uses an event-driven, multi-agent architecture. The system is designed around a central `EventBus` in `orchestrator.py` that fully decouples the agents, allowing them to scale and fail independently.
+CodeMechanic-Bot uses an event-driven, multi-agent architecture. The system is designed around a central `EventBus` in `orchestrator.py` that fully decouples the agents, allowing them to scale and fail independently.
 
 ## The Event Pipeline
 
@@ -8,21 +8,27 @@ When you run `python orchestrator.py`, the orchestrator enters an infinite loop.
 
 1. **BountyRadar**: Queries GitHub for issues with specific labels (`bounty`, `algora`, `polar`). It filters out saturated issues and emits a `BOUNTY_FOUND` event.
 2. **ScamDetector**: Listens for `BOUNTY_FOUND`. It queries the repository's statistics. If the repo has < 5 stars, 0 historically merged PRs, or > 50 open issues, it kills the pipeline for that issue. Otherwise, it emits `BOUNTY_VERIFIED`.
-3. **PREngineer**: Listens for `BOUNTY_VERIFIED`. 
+3. **StaticAnalyzer**: Runs continuously in the background to proactively audit popular repositories (via `docker`). Runs `Semgrep` (logic bugs), `Trivy` (IaC and CVEs), and `Gitleaks` (secrets). Emits `BOUNTY_VERIFIED` for zero-days found.
+4. **PREngineer**: Listens for `BOUNTY_VERIFIED`. 
    - Uses the GitHub API to post a "Comment First" message proposing to work on the issue.
    - Clones the repository locally.
    - Harvests context (tests, `CONTRIBUTING.md`, recent commits).
    - Queries the local AI (`gemma4:e4b`, with fallbacks to `llama3` and `mistral`) to generate a targeted patch.
+   - Tests the patch in a sandboxed Docker container (with daemon reconnection resilience).
    - Emits `PR_READY`.
-4. **CodeReviewer**: Listens for `PR_READY`.
+5. **CodeReviewer**: Listens for `PR_READY`.
    - Has the AI self-review the generated patch for security and style.
-   - If approved, it uses the GitHub CLI (`gh`) to fork the repository, commit the patch, and open a Pull Request.
+   - If approved, it uses the GitHub CLI (`gh`) and robust git branching (`checkout -B`) to fork the repository, commit the patch, and open a Pull Request.
    - Emits `PR_SUBMITTED`.
-5. **ContentEngine** / **DevOpsMonitor** / **EarningsTracker**: All listen for `PR_SUBMITTED` in parallel.
+6. **ContentEngine** / **DevOpsMonitor** / **EarningsTracker**: All listen for `PR_SUBMITTED` in parallel.
    - `ContentEngine`: Writes a markdown blog post detailing the automated fix.
    - `DevOpsMonitor`: Simulates tracking the CI/CD pipeline of the PR.
    - `EarningsTracker`: Maintains a local ledger of estimated ROIs.
-6. **ReviewTracker**: Runs continuously alongside the radar. It polls open PRs authored by the bot. If a maintainer leaves a review requesting changes, it emits `PR_REVIEWED`, which routes back to the `PREngineer` to iteratively fix the code.
+7. **ReviewTracker**: Runs continuously alongside the radar. It polls open PRs authored by the bot. If a maintainer leaves a review requesting changes, it emits `PR_REVIEWED`, which routes back to the `PREngineer` to iteratively fix the code.
+
+## Premium Web Dashboard
+
+The backend communicates natively with a lightweight `FastAPI` server (`api/main.py`). The frontend (`ui/`) uses a beautiful Catppuccin Mocha theme with glassmorphism to control the bot. It embeds `CodeMirror` (with Vim mode enabled) so humans can intercept and review PRs manually if `manual_approval` is required in the config.
 
 ## Config & Model Fallbacks
 

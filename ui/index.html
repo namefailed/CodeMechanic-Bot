@@ -6,6 +6,7 @@
     <title>BugBot Dashboard</title>
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
     <div class="app-container">
@@ -18,6 +19,8 @@
             
             <nav class="tabs">
                 <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
+                <button class="tab-btn" data-tab="approvals">Manual Approvals</button>
+                <button class="tab-btn" data-tab="analytics">Analytics</button>
                 <button class="tab-btn" data-tab="terminal">Terminal Feed</button>
                 <button class="tab-btn" data-tab="ai">AI Auditing</button>
                 <button class="tab-btn" data-tab="settings">Settings</button>
@@ -43,6 +46,35 @@
                 </header>
                 <div class="pr-grid" id="pr-container">
                     <!-- PR cards injected here -->
+                </div>
+            </section>
+
+            <!-- Approvals Tab -->
+            <section id="approvals" class="tab-content">
+                <header class="section-header">
+                    <h2>Manual Approvals</h2>
+                    <p>Review, edit, and approve patches before they are submitted to GitHub.</p>
+                </header>
+                <div class="pr-grid" id="approvals-container">
+                    <!-- Approval cards injected here -->
+                </div>
+            </section>
+
+            <!-- Analytics Tab -->
+            <section id="analytics" class="tab-content">
+                <header class="section-header">
+                    <h2>Analytics & Performance</h2>
+                    <p>Insights into vulnerability types and ROI.</p>
+                </header>
+                <div class="analytics-grid">
+                    <div class="glass-panel chart-container">
+                        <h3>Vulnerability Types Found</h3>
+                        <canvas id="vulnChart"></canvas>
+                    </div>
+                    <div class="glass-panel chart-container">
+                        <h3>Estimated ROI (Bounties)</h3>
+                        <canvas id="roiChart"></canvas>
+                    </div>
                 </div>
             </section>
 

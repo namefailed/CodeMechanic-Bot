@@ -23,6 +23,16 @@ class Database:
                     CREATE TABLE IF NOT EXISTS processed_comments (
                         comment_id TEXT PRIMARY KEY
                     );
+                    CREATE TABLE IF NOT EXISTS pending_approvals (
+                        issue_url TEXT PRIMARY KEY,
+                        repo_name TEXT,
+                        issue_title TEXT,
+                        issue_number TEXT,
+                        proposed_fix TEXT,
+                        ai_summary TEXT,
+                        workspace_path TEXT,
+                        modified_files TEXT
+                    );
                 ''')
         except Exception as e:
             logger.error(f"Database init failed: {e}")
@@ -71,3 +81,31 @@ class Database:
                 self.conn.execute("INSERT OR IGNORE INTO processed_comments (comment_id) VALUES (?)", (comment_id,))
         except Exception as e:
             logger.error(f"Failed to mark comment {comment_id}: {e}")
+
+    def save_pending_approval(self, issue_url: str, repo_name: str, issue_title: str, issue_number: str, proposed_fix: str, ai_summary: str, workspace_path: str, modified_files: str):
+        try:
+            with self.conn:
+                self.conn.execute('''
+                    INSERT OR REPLACE INTO pending_approvals 
+                    (issue_url, repo_name, issue_title, issue_number, proposed_fix, ai_summary, workspace_path, modified_files)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (issue_url, repo_name, issue_title, issue_number, proposed_fix, ai_summary, workspace_path, modified_files))
+        except Exception as e:
+            logger.error(f"Failed to save pending approval {issue_url}: {e}")
+
+    def get_pending_approvals(self) -> list:
+        try:
+            cur = self.conn.cursor()
+            cur.execute("SELECT issue_url, repo_name, issue_title, issue_number, proposed_fix, ai_summary, workspace_path, modified_files FROM pending_approvals")
+            cols = ["issue_url", "repo_name", "issue_title", "issue_number", "proposed_fix", "ai_summary", "workspace_path", "modified_files"]
+            return [dict(zip(cols, row)) for row in cur.fetchall()]
+        except Exception as e:
+            logger.error(f"Failed to fetch pending approvals: {e}")
+            return []
+            
+    def remove_pending_approval(self, issue_url: str):
+        try:
+            with self.conn:
+                self.conn.execute("DELETE FROM pending_approvals WHERE issue_url = ?", (issue_url,))
+        except Exception as e:
+            logger.error(f"Failed to remove pending approval {issue_url}: {e}")

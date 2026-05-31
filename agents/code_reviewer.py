@@ -113,7 +113,7 @@ class CodeReviewer:
         
         # Strict heuristic: only proceed if the AI explicitly gives the exact approved status
         if "[FINAL_STATUS: APPROVED]" in review_feedback.upper():
-            logger.info(f"CodeReviewer: Code looks good. Submitting PR for {repo_name}!")
+            logger.info(f"CodeReviewer: Code looks good. Preparing PR for {repo_name}!")
             
             # Save an audit log of the approved patch so we can review it later
             audit_dir = os.path.join(os.getcwd(), "audit_logs")
@@ -122,6 +122,30 @@ class CodeReviewer:
             with open(os.path.join(audit_dir, f"{safe_repo}_issue_{issue_number}.md"), "w", encoding="utf-8") as f:
                 f.write(f"# {issue_title}\n\n## Patch\n{proposed_fix}\n\n## AI Review\n{review_feedback}")
                 
+            import yaml
+            config_path = "config.yaml"
+            manual_approval_required = False
+            if os.path.exists(config_path):
+                with open(config_path, "r") as f:
+                    cfg = yaml.safe_load(f) or {}
+                    manual_approval_required = cfg.get("manual_approval", False)
+
+            if manual_approval_required:
+                logger.info(f"CodeReviewer: Manual Approval Required. Saving to pending approvals.")
+                import json
+                self.db.save_pending_approval(
+                    issue_url=payload.get('issue_url', ''),
+                    repo_name=repo_name,
+                    issue_title=issue_title,
+                    issue_number=str(issue_number),
+                    proposed_fix=proposed_fix,
+                    ai_summary=review_feedback,
+                    workspace_path=workspace_path,
+                    modified_files=json.dumps(payload.get("modified_files", []))
+                )
+                self.db.mark_issue(payload.get('issue_url', ''), repo_name, "AWAITING_APPROVAL")
+                return
+
             success = self.submit_pr(repo_name, issue_title, issue_number, proposed_fix, workspace_path, payload.get("modified_files", []))
             if success:
                 # Mark as submitted!

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -9,6 +9,8 @@ import json
 import os
 import subprocess
 import psutil
+from utils.database import Database
+from agents.code_reviewer import CodeReviewer
 
 app = FastAPI()
 
@@ -113,6 +115,57 @@ def get_logs():
             return {"logs": "".join(lines[-200:])}
     except:
         return {"logs": "Error reading logs."}
+
+class ApprovalRequest(BaseModel):
+    issue_url: str
+    edited_code: str = None
+
+@app.get("/api/approvals")
+def get_approvals():
+    db = Database(DB_PATH)
+    return db.get_pending_approvals()
+
+@app.post("/api/approvals/approve")
+def approve_pr(req: ApprovalRequest):
+    db = Database(DB_PATH)
+    pending = db.get_pending_approvals()
+    target = next((p for p in pending if p["issue_url"] == req.issue_url), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Pending approval not found")
+        
+    code_to_submit = req.edited_code if req.edited_code else target["proposed_fix"]
+    modified_files = json.loads(target["modified_files"])
+    
+    # Initialize standalone CodeReviewer just for submission
+    # We pass a dummy lambda for the event bus publish
+    reviewer = CodeReviewer(lambda x: None)
+    
+    success = reviewer.submit_pr(
+        repo_name=target["repo_name"],
+        issue_title=target["issue_title"],
+        issue_number=target["issue_number"],
+        proposed_fix=code_to_submit,
+        workspace_path=target["workspace_path"],
+        modified_files=modified_files
+    )
+    
+    if success:
+        db.remove_pending_approval(req.issue_url)
+        db.mark_issue(req.issue_url, target["repo_name"], "SUBMITTED")
+        return {"status": "success"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to submit PR via GitHub API.")
+
+@app.post("/api/approvals/reject")
+def reject_pr(req: ApprovalRequest):
+    db = Database(DB_PATH)
+    target = next((p for p in db.get_pending_approvals() if p["issue_url"] == req.issue_url), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Pending approval not found")
+        
+    db.remove_pending_approval(req.issue_url)
+    db.mark_issue(req.issue_url, target["repo_name"], "REJECTED_MANUALLY")
+    return {"status": "rejected"}
 
 if os.path.exists(UI_PATH):
     app.mount("/", StaticFiles(directory=UI_PATH, html=True), name="ui")

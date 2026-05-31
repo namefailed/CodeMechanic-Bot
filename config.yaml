@@ -1,7 +1,13 @@
 agent:
   name: "CodeMechanic-Bot"
   purpose: "Autonomous bounty hunting"
-  
+
+# Require manual approval in the dashboard before any PR is submitted.
+# Recommended TRUE for first runs so you can review each AI patch (in the
+# Approvals tab) before it is pushed to a real repo. Set false for fully
+# autonomous submission.
+manual_approval: true
+
 governance:
   rate_limits:
     github_api_calls: 5000

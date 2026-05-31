@@ -35,17 +35,29 @@ Runs continuously in the background (pausing only when the Bounty Hunter wakes u
 
 ## Quick Start
 
-1. Install requirements:
+1. Create a virtualenv and install requirements:
    ```bash
+   python -m venv .venv
+   .venv\Scripts\activate          # Windows (PowerShell/cmd) — use source .venv/bin/activate on *nix
    pip install -r requirements.txt
    ```
-2. Start your local Ollama server and Docker daemon.
-3. Start the built-in Dashboard UI (loopback only — it holds your GitHub token and can start the bot):
+2. Add your GitHub token to a `.env` file in the project root (gitignored):
+   ```
+   GITHUB_TOKEN=ghp_your_token_here
+   ```
+3. Pull at least one local model with Ollama (must match `config.yaml`):
+   ```bash
+   ollama pull gemma3:4b
+   ```
+4. *(Optional, recommended)* Start Docker Desktop. Without it, generated patches are **not** test-validated in a sandbox and the zero-day researcher is disabled — the bounty bot still runs.
+5. Start the dashboard **from the same virtualenv** (loopback only — it holds your token and can start the bot):
    ```bash
    uvicorn api.main:app --host 127.0.0.1 --port 8000
    ```
    > ⚠️ Do not bind to `0.0.0.0` / expose this dashboard on a network without adding authentication first.
-4. Click "Start Bot" in the Web Dashboard.
+6. Open <http://127.0.0.1:8000> and click "Start Bot".
+
+> **First run:** `manual_approval: true` is set in `config.yaml`, so each AI patch is queued in the **Approvals** tab for you to review before it opens a real PR. The bot still posts a "comment-first" message on issues once it has a working fix. Set `manual_approval: false` for fully autonomous submission.
 
 ## Disclaimer
 This machine account is operated heavily by @namefailed. It strictly adheres to anti-slop principles. Do not abuse this architecture to spam repositories with low-quality, AI-generated fluff.

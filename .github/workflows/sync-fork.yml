@@ -1,9 +1,15 @@
 name: Sync Fork
 
+# Mirrors master to the bot account's engine repo (CodeMechanic-Bot/CodeMechanic-Engine).
+#
+# This used to run on every push, but that target repo does not exist yet, so
+# every push failed and sent a failure email. It is now MANUAL-ONLY and skips
+# gracefully when the secret or target repo is missing — so it never spams
+# failures. To re-enable automatic mirroring: create the CodeMechanic-Engine
+# repo under the bot account, ensure BOT_GITHUB_TOKEN can push to it, and add
+# the `push:` trigger back below.
 on:
-  push:
-    branches:
-      - master
+  workflow_dispatch:
 
 jobs:
   sync:
@@ -15,6 +21,17 @@ jobs:
           fetch-depth: 0
 
       - name: Push to Bot Fork
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_GITHUB_TOKEN }}
         run: |
-          git remote add bot-fork https://x-access-token:${{ secrets.BOT_GITHUB_TOKEN }}@github.com/CodeMechanic-Bot/CodeMechanic-Engine.git
-          git push bot-fork master --force
+          if [ -z "$BOT_TOKEN" ]; then
+            echo "BOT_GITHUB_TOKEN is not set — skipping fork sync."
+            exit 0
+          fi
+          git remote add bot-fork "https://x-access-token:${BOT_TOKEN}@github.com/CodeMechanic-Bot/CodeMechanic-Engine.git"
+          if git ls-remote bot-fork >/dev/null 2>&1; then
+            git push bot-fork master --force
+          else
+            echo "Target CodeMechanic-Bot/CodeMechanic-Engine not reachable — skipping (create it to enable mirroring)."
+            exit 0
+          fi

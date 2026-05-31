@@ -30,7 +30,7 @@ Runs continuously in the background (pausing only when the Bounty Hunter wakes u
 
 ## Documentation
 
-- **[Architecture](docs/ARCHITECTURE.md)**: A deep dive into the 7-agent EventBus system.
+- **[Architecture](docs/ARCHITECTURE.md)**: A deep dive into the 10-agent EventBus system.
 - **[User Guide](docs/USER_GUIDE.md)**: An extremely simple, step-by-step guide on how to configure and run the bot.
 
 ## Quick Start

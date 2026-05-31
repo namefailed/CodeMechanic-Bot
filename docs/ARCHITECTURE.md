@@ -24,7 +24,7 @@ When you run `python orchestrator.py`, the orchestrator enters an infinite loop.
    - `ContentEngine`: Writes a markdown blog post detailing the automated fix.
    - `DevOpsMonitor`: Simulates tracking the CI/CD pipeline of the PR.
    - `EarningsTracker`: Maintains a local ledger of estimated ROIs.
-7. **ReviewTracker**: Runs continuously alongside the radar. It polls open PRs authored by the bot. If a maintainer leaves a review requesting changes, it emits `PR_REVIEWED`, which routes back to the `PREngineer` to iteratively fix the code.
+7. **ReviewTracker** & **PRMaintainer**: Run continuously alongside the radar, polling the bot's open PRs. `ReviewTracker` watches for formal "changes requested" reviews (emitting `PR_REVIEWED`); `PRMaintainer` watches for new maintainer comments (emitting `MAINTAINER_FEEDBACK`). Both route back to the `PREngineer` to iteratively fix the code.
 
 ## Premium Web Dashboard
 

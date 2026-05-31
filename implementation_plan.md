@@ -1,9 +1,11 @@
 # Implementation Plan
 
+> **Status (2026-05):** This is the original planning doc, kept for history. The system is built and has since grown from 7 to 10 agents (added Static Analyzer, PR Maintainer, Review Tracker). See [README](README.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the current design.
+
 ## Goal Description
 Build "ZKA Money Printer," an autonomous 24/7 Bug Bounty Bot designed to hunt GitHub bounties, identify real opportunities, submit pull requests, and track earnings. This project matches the proven architecture from the reference articles while incorporating advanced architectural ideas from leading open-source agents (like OpenHands, SWE-agent, and Open SWE). 
 
-The setup will be optimized for a fresh Windows 11 installation on a high-end gaming laptop, leveraging local GPU resources for AI model inference (e.g., using Ollama with Gemma 4 or similar models) to minimize cloud costs and maintain privacy.
+The setup will be optimized for a fresh Windows 11 installation on a high-end gaming laptop, leveraging local GPU resources for AI model inference (e.g., using Ollama with Gemma 3 4B or similar models) to minimize cloud costs and maintain privacy.
 
 ## Architecture
 

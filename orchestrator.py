@@ -59,6 +59,8 @@ class EventBus:
                 except Exception as e:
                     logger.error(f"[EventBus] Error in callback {callback.__name__} for event {event.event_type}: {e}")
 
+import threading
+
 class Orchestrator:
     """
     Main controller for the bug-bot pipeline.
@@ -71,6 +73,10 @@ class Orchestrator:
         self.init_agents()
         self.setup_subscriptions()
         self.resume_pending_tasks()
+        
+        # Synchronization event: True when bounty scan is active
+        self.bounty_active_event = threading.Event()
+        self.bounty_active_event.clear()
 
     def resume_pending_tasks(self):
         """Resume any issues that were PENDING if the bot crashed mid-execution."""
@@ -78,7 +84,6 @@ class Orchestrator:
         if pending:
             logger.info(f"Orchestrator: Found {len(pending)} PENDING issues from a previous run. Resuming...")
             for issue in pending:
-                # We emit BOUNTY_VERIFIED to drop it straight into PREngineer
                 payload = {
                     "issue_url": issue["issue_url"],
                     "repo": issue["repo"],
@@ -117,7 +122,9 @@ class Orchestrator:
         self.devops_monitor = DevOpsMonitor(self.bus.publish)
         self.earnings_tracker = EarningsTracker(self.bus.publish)
         self.review_tracker = ReviewTracker(self.bus.publish)
-        self.static_analyzer = StaticAnalyzer(self.bus.publish)
+        
+        # Pass the event to the StaticAnalyzer so it knows when to pause
+        self.static_analyzer = StaticAnalyzer(self.bus.publish, self.bounty_active_event)
         self.pr_maintainer = PRMaintainer(self.bus.publish)
 
     def setup_subscriptions(self):
@@ -132,22 +139,54 @@ class Orchestrator:
         self.bus.subscribe("PR_REVIEWED", self.pr_engineer.solve_issue)
         self.bus.subscribe("PR_REJECTED", self.pr_engineer.solve_issue)
 
-    def run(self):
-        """Starts the infinite scanning loop."""
-        logger.info("Starting bug-bot Orchestrator loop...")
-        try:
-            while True:
-                logger.info("--- Starting new scan cycle ---")
+    def bounty_loop(self):
+        """Runs every 30 minutes to scan for bounties."""
+        while True:
+            logger.info("--- Starting new Bounty Scan Cycle ---")
+            self.bounty_active_event.set() # Tell researcher to pause
+            
+            try:
                 self.radar.scan()
-                self.static_analyzer.scan()
                 self.pr_maintainer.check_prs()
                 self.review_tracker.track()
-                logger.info("--- Scan cycle complete. Sleeping for 15 minutes ---")
-                time.sleep(900) # Scan every 15 mins
+            except Exception as e:
+                logger.error(f"Error in bounty loop: {e}")
+                
+            self.bounty_active_event.clear() # Allow researcher to resume
+            logger.info("--- Bounty Scan Complete. Sleeping for 30 minutes. Researcher unpaused. ---")
+            time.sleep(1800) # Sleep 30 minutes
+
+    def researcher_loop(self):
+        """Runs continuously, hunting for Zero-Days. Pauses when bounty_active_event is set."""
+        while True:
+            if self.bounty_active_event.is_set():
+                # Pause while bounty scan is running
+                time.sleep(10)
+                continue
+                
+            try:
+                self.static_analyzer.scan()
+            except Exception as e:
+                logger.error(f"Error in researcher loop: {e}")
+            
+            # Small sleep between repos to avoid rate limits
+            time.sleep(60)
+
+    def run(self):
+        """Starts the orchestrator threads."""
+        logger.info("Starting dual-mode bug-bot Orchestrator...")
+        
+        t_bounty = threading.Thread(target=self.bounty_loop, daemon=True)
+        t_researcher = threading.Thread(target=self.researcher_loop, daemon=True)
+        
+        t_bounty.start()
+        t_researcher.start()
+        
+        try:
+            while True:
+                time.sleep(1)
         except KeyboardInterrupt:
             logger.info("\nShutting down Orchestrator gracefully.")
-        except Exception as e:
-            logger.error(f"Orchestrator encountered a fatal error: {e}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Bug Bot Orchestrator")

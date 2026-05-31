@@ -90,9 +90,16 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const res = await fetch(`${API_BASE}/logs`);
             const data = await res.json();
+            
+            // Check if user is scrolled to the bottom (within 50px)
+            const isScrolledToBottom = terminalOutput.scrollHeight - terminalOutput.clientHeight <= terminalOutput.scrollTop + 50;
+            
             terminalOutput.innerHTML = colorizeLogs(data.logs);
-            // auto scroll
-            terminalOutput.scrollTop = terminalOutput.scrollHeight;
+            
+            // auto scroll only if they were already at the bottom
+            if (isScrolledToBottom) {
+                terminalOutput.scrollTop = terminalOutput.scrollHeight;
+            }
         } catch(e) {}
     }
 

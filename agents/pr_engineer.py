@@ -67,12 +67,13 @@ class PREngineer:
         """Returns a configured requests session for AI or API queries."""
         return SafeGitHubSession()
 
-    def post_comment(self, repo_name: str, issue_number: str):
+    def post_comment(self, repo_name: str, issue_number: str) -> str:
         """
         Implements the 'Comment-First' strategy to build trust with maintainers.
+        Returns the comment_id if successful, otherwise empty string.
         """
         if not self.github_token or not issue_number:
-            return
+            return ""
         
         logger.info(f"PREngineer: Comment-First Strategy -> Posting to #{issue_number}")
         headers = {
@@ -99,145 +100,118 @@ class PREngineer:
                 existing_comments = res.json()
                 if any(c.get("body", "") in [stealth_msg, bot_msg] for c in existing_comments):
                     logger.info(f"PREngineer: Comment already exists on #{issue_number}. Skipping duplicate.")
-                    return
+                    # Return existing comment id if found
+                    for c in existing_comments:
+                        if c.get("body", "") in [stealth_msg, bot_msg]:
+                            return str(c.get("id", ""))
                     
-            session.post(url, headers=headers, json={"body": comment}, timeout=self.timeout)
+            res = session.post(url, headers=headers, json={"body": comment}, timeout=self.timeout)
+            if res.status_code == 201:
+                return str(res.json().get("id", ""))
         except requests.exceptions.RequestException as e:
             logger.error(f"PREngineer: Failed to post comment: {e}")
+        return ""
 
     def gather_context(self, repo_path: str, issue_title: str = "", issue_body: str = "", comments: list = []) -> str:
         """
-        Performs a 'Context Harvest' to learn the repository's coding style and rules.
-        Also extracts any mentioned files from the issue body or comments and injects their code!
+        Agentic Context Gathering Loop.
+        Provides the AI with tools to explore the codebase.
+        Returns a compiled context (from memory.md) when the AI calls <call>ready_to_patch()</call>.
         """
-        logger.info("PREngineer: Context Harvest -> Gathering repo style and structure.")
-        context = ""
-        try:
-            # 0. Directory Structure (Skeleton)
-            dir_context = "Directory Structure:\n"
-            for root, dirs, files in os.walk(repo_path):
-                # Ignore noisy directories
-                dirs[:] = [d for d in dirs if d not in ['.git', 'node_modules', 'target', 'venv', '__pycache__', 'dist', 'build']]
-                level = root.replace(repo_path, '').count(os.sep)
-                indent = ' ' * 4 * level
-                dir_context += f"{indent}{os.path.basename(root)}/\n"
-                subindent = ' ' * 4 * (level + 1)
-                for f in files:
-                    dir_context += f"{subindent}{f}\n"
-                    
-            if len(dir_context) > 3000:
-                dir_context = dir_context[:3000] + "\n...[DIRECTORY TRUNCATED]..."
-            context += dir_context + "\n\n"
+        logger.info("PREngineer: Initiating Agentic Context Gathering Loop...")
+        memory_path = os.path.join(repo_path, "memory.md")
+        
+        # We start by giving it the directory structure (capped)
+        dir_context = "Directory Structure:\n"
+        for root, dirs, files in os.walk(repo_path):
+            dirs[:] = [d for d in dirs if d not in ['.git', 'node_modules', 'target', 'venv', '__pycache__', 'dist', 'build']]
+            level = root.replace(repo_path, '').count(os.sep)
+            indent = ' ' * 4 * level
+            dir_context += f"{indent}{os.path.basename(root)}/\n"
+            subindent = ' ' * 4 * (level + 1)
+            for f in files:
+                dir_context += f"{subindent}{f}\n"
+        if len(dir_context) > 3000:
+            dir_context = dir_context[:3000] + "\n...[DIRECTORY TRUNCATED]..."
 
-            # 1. Pull README.md
+        system_prompt = f"""You are an autonomous codebase explorer. Your goal is to investigate this issue and prepare a 'memory' for the patch writer.
+ISSUE TITLE: {issue_title}
+ISSUE BODY: {issue_body}
+
+You have the following tools available. You MUST use exactly one tool per turn.
+Format: <call>tool_name(args)</call>
+
+TOOLS:
+1. <call>read_file(path/to/file)</call> - Returns the contents of a file.
+2. <call>write_memory(text)</call> - Appends notes to your memory pad. Write down code snippets, logic flows, and instructions for how to fix the issue.
+3. <call>ready_to_patch()</call> - Terminates exploration and passes your memory to the code writer. Use this when you fully understand the bug and have written all necessary notes into memory.
+
+{dir_context}
+
+Begin your exploration."""
+
+        conversation_history = system_prompt
+        
+        for turn in range(8): # max 8 turns
+            logger.info(f"PREngineer: Agentic Loop Turn {turn+1}/8...")
+            try:
+                response = self.query_ai(conversation_history)
+            except Exception as e:
+                logger.error(f"PREngineer: AI query failed during context gathering: {e}")
+                break
+            
+            import re
+            match = re.search(r'<call>(\w+)\((.*?)\)</call>', response, re.DOTALL)
+            if not match:
+                logger.warning("PREngineer: AI failed to call a tool. Prompting it to continue.")
+                conversation_history += f"\n\nAI: {response}\n\nSYSTEM: You must call a tool using <call>tool_name(args)</call>."
+                continue
+                
+            tool_name = match.group(1)
+            tool_args = match.group(2).strip()
+            logger.info(f"PREngineer: AI called {tool_name}({tool_args[:50]}...)")
+            
+            if tool_name == "read_file":
+                full_path = os.path.join(repo_path, tool_args.strip('"\'').lstrip('/'))
+                if ".." in full_path:
+                    result = "Error: Directory traversal not allowed."
+                elif os.path.exists(full_path) and os.path.isfile(full_path):
+                    with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
+                        file_content = f.read()
+                        if len(file_content) > 4000:
+                            file_content = file_content[:4000] + "\n...[TRUNCATED]..."
+                        result = f"--- {tool_args} ---\n{file_content}"
+                else:
+                    result = f"Error: File {tool_args} not found."
+                    
+            elif tool_name == "write_memory":
+                with open(memory_path, "a", encoding="utf-8") as f:
+                    f.write(tool_args + "\n")
+                result = "Memory updated."
+                
+            elif tool_name == "ready_to_patch":
+                break
+                
+            else:
+                result = f"Error: Unknown tool '{tool_name}'."
+                
+            conversation_history += f"\n\nAI: {response}\n\nSYSTEM TOOL RESULT:\n{result}"
+            
+        # Compile final context
+        context = "--- AGENTIC SCRATCHPAD MEMORY ---\n"
+        if os.path.exists(memory_path):
+            with open(memory_path, "r", encoding="utf-8") as f:
+                context += f.read()
+        else:
+            context += "No memory recorded by the explorer agent.\n"
+            
+        # Fallback to append README if memory is empty
+        if len(context) < 100:
             readme_path = os.path.join(repo_path, "README.md")
             if os.path.exists(readme_path):
                 with open(readme_path, "r", encoding="utf-8", errors="ignore") as f:
-                    context += f"README.md:\n{f.read()[:1000]}\n\n"
-
-            # 2. Pull contributing guidelines
-            contrib_path = os.path.join(repo_path, "CONTRIBUTING.md")
-            if os.path.exists(contrib_path):
-                with open(contrib_path, "r", encoding="utf-8", errors="ignore") as f:
-                    context += f"CONTRIBUTING.md:\n{f.read()[:500]}\n\n"
-            
-            # 3. Get recent commits for commit message style
-            repo = git.Repo(repo_path)
-            commits = list(repo.iter_commits(max_count=5))
-            context += "Recent Commits:\n"
-            for c in commits:
-                context += f"- {c.message.strip()}\n"
-            # 4. Context RAG: Extract mentioned files AND use TF-IDF to find relevant files
-            text_to_search = issue_title + "\n" + issue_body + "\n" + "\n".join(comments)
-            potential_files = set(re.findall(r'[\w/.-]+\.\w+', text_to_search))
-            
-            # TF-IDF Zero-Setup RAG
-            try:
-                from sklearn.feature_extraction.text import TfidfVectorizer
-                from sklearn.metrics.pairwise import cosine_similarity
-                
-                all_files = []
-                file_contents = []
-                for root, dirs, files in os.walk(repo_path):
-                    dirs[:] = [d for d in dirs if d not in ['.git', 'node_modules', 'target', 'venv', '__pycache__', 'dist', 'build', '.idea', '.vscode']]
-                    for f in files:
-                        full_path = os.path.join(root, f)
-                        try:
-                            with open(full_path, "r", encoding="utf-8", errors="ignore") as file_obj:
-                                content = file_obj.read()
-                                if content.strip():
-                                    all_files.append(full_path)
-                                    # Prefix filename so filename matches give high score
-                                    file_contents.append(f"{f} {f} {content}")
-                        except:
-                            pass
-                
-                if file_contents:
-                    vectorizer = TfidfVectorizer(stop_words='english', max_features=10000)
-                    tfidf_matrix = vectorizer.fit_transform(file_contents + [text_to_search])
-                    cosine_sim = cosine_similarity(tfidf_matrix[-1], tfidf_matrix[:-1]).flatten()
-                    top_indices = cosine_sim.argsort()[-3:][::-1]  # Top 3 most similar files
-                    for idx in top_indices:
-                        if cosine_sim[idx] > 0.05:  # Arbitrary relevance threshold
-                            rel_path = os.path.relpath(all_files[idx], repo_path).replace("\\", "/")
-                            potential_files.add(rel_path)
-                            logger.info(f"PREngineer: RAG fetched {rel_path} (score: {cosine_sim[idx]:.3f})")
-            except Exception as e:
-                logger.warning(f"PREngineer: TF-IDF RAG failed (is scikit-learn installed?): {e}")
-
-            context += "Relevant Source Code:\n"
-            found_any = False
-            
-            ast_dependencies = set()
-            try:
-                from utils.ast_parser import extract_local_imports
-            except ImportError:
-                extract_local_imports = None
-
-            for f in potential_files:
-                # Basic protection against traversing up
-                if ".." in f: continue
-                full_path = os.path.join(repo_path, f.lstrip('/'))
-                if os.path.isfile(full_path) and os.path.exists(full_path):
-                    try:
-                        with open(full_path, "r", encoding="utf-8", errors="ignore") as file_obj:
-                            file_content = file_obj.read()
-                            if len(file_content) > 4000:
-                                file_content = file_content[:4000] + "\n...[FILE CONTENT TRUNCATED]..."
-                            context += f"--- {f} ---\n{file_content}\n\n"
-                            found_any = True
-                            
-                        # AST Context Upgrade
-                        if full_path.endswith(".py") and extract_local_imports:
-                            deps = extract_local_imports(full_path, repo_path)
-                            for d in deps:
-                                ast_dependencies.add(d)
-                                
-                    except Exception as e:
-                        logger.warning(f"Failed to read extracted file {f}: {e}")
-                        
-            if ast_dependencies:
-                context += "--- AST Dependency Context ---\n"
-                for dep in ast_dependencies:
-                    try:
-                        with open(dep, "r", encoding="utf-8", errors="ignore") as file_obj:
-                            rel_dep = os.path.relpath(dep, repo_path).replace("\\", "/")
-                            file_content = file_obj.read()
-                            if len(file_content) > 2500:
-                                file_content = file_content[:2500] + "\n...[DEPENDENCY TRUNCATED]..."
-                            context += f"--- {rel_dep} (Imported Dependency) ---\n{file_content}\n\n"
-                    except: pass
-            if not found_any:
-                context += "No specific files mentioned or found.\n\n"
-
-        except Exception as e:
-            logger.error(f"PREngineer: Context Harvest failed: {e}")
-            
-        # Hard limit the context to 18,000 characters to prevent local model hallucination
-        if len(context) > 18000:
-            logger.warning("PREngineer: Context too large, truncating to 18k characters as final safety net.")
-            context = context[:18000] + "\n...[CONTEXT TRUNCATED]..."
-            
+                    context += f"Fallback README.md:\n{f.read()[:1000]}\n"
+                    
         return context
 
     def query_ai(self, prompt: str) -> str:
@@ -400,6 +374,35 @@ class PREngineer:
             logger.error("PREngineer: Invalid payload received. Missing repo or title.")
             return
             
+    def run_capability_check(self, issue_title: str, issue_body: str) -> bool:
+        """
+        Triage step to abort impossible issues (e.g., Dependabot bumps).
+        """
+        prompt = f"""You are evaluating an open-source issue to determine if it is solvable by a standard coding AI agent.
+We only want to solve logic bugs, feature requests, or straightforward documentation updates.
+If the issue is a dependency bump (like Dependabot), an infrastructure/CI setup task, or an impossibly vague architecture change, you must reject it.
+
+ISSUE TITLE: {issue_title}
+ISSUE BODY: {issue_body}
+
+Respond ONLY with a JSON object in this exact format, nothing else:
+{{"confidence_score": <number 1-100>, "reasoning": "<brief reason>"}}"""
+        try:
+            res_str = self.query_ai(prompt)
+            # Find the JSON part
+            import re, json
+            match = re.search(r'\{.*\}', res_str.strip().replace('\n', ''))
+            if match:
+                data = json.loads(match.group(0))
+                score = data.get("confidence_score", 0)
+                reason = data.get("reasoning", "No reason provided")
+                logger.info(f"PREngineer: Capability Check Score: {score}/100. Reason: {reason}")
+                return score >= 50
+            return True # Fallback if AI fails to format JSON
+        except Exception as e:
+            logger.warning(f"PREngineer: Capability check failed: {e}. Defaulting to True.")
+            return True
+            
         retry_count = payload.get('retry_count', 0)
         is_retry = retry_count > 0
         reviewer_feedback = payload.get('reviewer_feedback', '')
@@ -408,6 +411,12 @@ class PREngineer:
             # Mark issue as pending in DB
             self.db.mark_issue(issue_url, repo_name, "PENDING")
             logger.info(f"PREngineer: Starting work on {repo_name} - {issue_title}")
+
+            # 1. Capability Check Triage
+            if not self.run_capability_check(issue_title, issue_body):
+                logger.warning(f"PREngineer: Aborting issue due to low capability confidence.")
+                self.db.mark_issue(issue_url, repo_name, "ABORTED")
+                return
 
             # 2. Clone the repository safely (Scoped by issue_number to prevent race condition nukes)
             safe_issue_num = str(issue_number).replace("/", "_")
@@ -544,7 +553,9 @@ def helper():
                 if success:
                     # Only post the comment-first strategy if we ACTUALLY got a fix.
                     if not is_retry:
-                        self.post_comment(repo_name, issue_number)
+                        comment_id = self.post_comment(repo_name, issue_number)
+                        if comment_id:
+                            payload["comment_id"] = comment_id
                         
                     payload["proposed_fix"] = ai_response
                     payload["workspace_path"] = repo_path

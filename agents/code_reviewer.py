@@ -141,7 +141,8 @@ class CodeReviewer:
                     proposed_fix=proposed_fix,
                     ai_summary=review_feedback,
                     workspace_path=workspace_path,
-                    modified_files=json.dumps(payload.get("modified_files", []))
+                    modified_files=json.dumps(payload.get("modified_files", [])),
+                    comment_id=payload.get("comment_id", "")
                 )
                 self.db.mark_issue(payload.get('issue_url', ''), repo_name, "AWAITING_APPROVAL")
                 return
@@ -164,6 +165,23 @@ class CodeReviewer:
                 self.publish_event(PRRejectedEvent(payload=payload))
             else:
                 logger.error(f"CodeReviewer: Max retries reached for {repo_name}. Dropping PR.")
+                # Automated Cleanup
+                workspace_path = payload.get("workspace_path")
+                comment_id = payload.get("comment_id")
+                
+                if workspace_path and os.path.exists(workspace_path):
+                    import shutil
+                    shutil.rmtree(workspace_path, ignore_errors=True)
+                    
+                if comment_id and self.github_token:
+                    try:
+                        headers = {"Authorization": f"token {self.github_token}", "Accept": "application/vnd.github.v3+json"}
+                        requests.delete(f"https://api.github.com/repos/{repo_name}/issues/comments/{comment_id}", headers=headers, timeout=10)
+                    except:
+                        pass
+                
+                # Mark as aborted in DB
+                self.db.mark_issue(payload.get('issue_url', ''), repo_name, "ABORTED")
 
     def submit_pr(self, repo_name: str, issue_title: str, issue_number: str, proposed_fix: str, workspace_path: str, modified_files: list):
         """

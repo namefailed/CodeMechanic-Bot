@@ -206,6 +206,26 @@ def reject_pr(req: ApprovalRequest):
         
     db.remove_pending_approval(req.issue_url)
     db.mark_issue(req.issue_url, target["repo_name"], "REJECTED_MANUALLY")
+    
+    import shutil
+    import requests
+    
+    workspace_path = target.get("workspace_path")
+    comment_id = target.get("comment_id")
+    repo_name = target.get("repo_name")
+    
+    if workspace_path and os.path.exists(workspace_path):
+        shutil.rmtree(workspace_path, ignore_errors=True)
+        
+    load_env_from_config()
+    github_token = os.environ.get("GITHUB_TOKEN")
+    if comment_id and github_token:
+        try:
+            headers = {"Authorization": f"token {github_token}", "Accept": "application/vnd.github.v3+json"}
+            requests.delete(f"https://api.github.com/repos/{repo_name}/issues/comments/{comment_id}", headers=headers, timeout=10)
+        except:
+            pass
+            
     return {"status": "rejected"}
 
 if os.path.exists(UI_PATH):

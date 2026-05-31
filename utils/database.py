@@ -31,7 +31,8 @@ class Database:
                         proposed_fix TEXT,
                         ai_summary TEXT,
                         workspace_path TEXT,
-                        modified_files TEXT
+                        modified_files TEXT,
+                        comment_id TEXT
                     );
                 ''')
         except Exception as e:
@@ -82,22 +83,22 @@ class Database:
         except Exception as e:
             logger.error(f"Failed to mark comment {comment_id}: {e}")
 
-    def save_pending_approval(self, issue_url: str, repo_name: str, issue_title: str, issue_number: str, proposed_fix: str, ai_summary: str, workspace_path: str, modified_files: str):
+    def save_pending_approval(self, issue_url: str, repo_name: str, issue_title: str, issue_number: str, proposed_fix: str, ai_summary: str, workspace_path: str, modified_files: str, comment_id: str = ""):
         try:
             with self.conn:
                 self.conn.execute('''
                     INSERT OR REPLACE INTO pending_approvals 
-                    (issue_url, repo_name, issue_title, issue_number, proposed_fix, ai_summary, workspace_path, modified_files)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (issue_url, repo_name, issue_title, issue_number, proposed_fix, ai_summary, workspace_path, modified_files))
+                    (issue_url, repo_name, issue_title, issue_number, proposed_fix, ai_summary, workspace_path, modified_files, comment_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (issue_url, repo_name, issue_title, issue_number, proposed_fix, ai_summary, workspace_path, modified_files, comment_id))
         except Exception as e:
             logger.error(f"Failed to save pending approval {issue_url}: {e}")
 
     def get_pending_approvals(self) -> list:
         try:
             cur = self.conn.cursor()
-            cur.execute("SELECT issue_url, repo_name, issue_title, issue_number, proposed_fix, ai_summary, workspace_path, modified_files FROM pending_approvals")
-            cols = ["issue_url", "repo_name", "issue_title", "issue_number", "proposed_fix", "ai_summary", "workspace_path", "modified_files"]
+            cur.execute("SELECT issue_url, repo_name, issue_title, issue_number, proposed_fix, ai_summary, workspace_path, modified_files, comment_id FROM pending_approvals")
+            cols = ["issue_url", "repo_name", "issue_title", "issue_number", "proposed_fix", "ai_summary", "workspace_path", "modified_files", "comment_id"]
             return [dict(zip(cols, row)) for row in cur.fetchall()]
         except Exception as e:
             logger.error(f"Failed to fetch pending approvals: {e}")

@@ -170,6 +170,9 @@ document.addEventListener('DOMContentLoaded', () => {
         return (unsafe || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     }
 
+    // Approvals Management
+    const approvalEditors = {};
+
     // Fetch Approvals
     async function fetchApprovals() {
         try {
@@ -182,31 +185,59 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             
-            approvalsContainer.innerHTML = data.map(pr => `
+            // Only re-render if the number or URLs of approvals changed to avoid destroying active edits
+            const currentUrls = Object.keys(approvalEditors);
+            const newUrls = data.map(pr => pr.issue_url);
+            if (currentUrls.length === newUrls.length && currentUrls.every(u => newUrls.includes(u))) {
+                return;
+            }
+
+            approvalsContainer.innerHTML = data.map((pr, idx) => `
                 <div class="pr-card glass-panel" style="grid-column: 1 / -1;">
                     <div class="pr-status pending">AWAITING APPROVAL</div>
                     <h3>${pr.repo_name} - #${pr.issue_number}</h3>
                     <p><strong>Title:</strong> ${pr.issue_title}</p>
-                    <div style="background: rgba(0,0,0,0.5); padding: 10px; border-radius: 5px; margin: 10px 0; max-height: 200px; overflow-y: auto;">
-                        <pre style="margin: 0; font-size: 0.85rem;"><code>${escapeHtml(pr.proposed_fix)}</code></pre>
+                    <div style="margin: 10px 0;">
+                        <textarea id="approval-editor-${idx}"></textarea>
                     </div>
                     <p style="font-size: 0.85rem; color: #aaa;"><strong>AI Review:</strong><br>${escapeHtml(pr.ai_summary)}</p>
                     <div style="display: flex; gap: 10px; margin-top: 15px;">
-                        <button class="action-btn" onclick="approvePR('${pr.issue_url}')" style="background: var(--success); color: #000;">Approve & Submit</button>
+                        <button class="action-btn" onclick="approvePR('${pr.issue_url}', ${idx})" style="background: var(--success); color: #000;">Approve & Submit</button>
                         <button class="action-btn" onclick="rejectPR('${pr.issue_url}')" style="background: var(--danger); color: #fff;">Reject</button>
                     </div>
                 </div>
             `).join('');
+
+            // Initialize CodeMirror for each approval
+            data.forEach((pr, idx) => {
+                const ta = document.getElementById(`approval-editor-${idx}`);
+                ta.value = pr.proposed_fix;
+                const cm = CodeMirror.fromTextArea(ta, {
+                    mode: "python", // Best effort, but supports XML tags
+                    theme: "dracula",
+                    keyMap: "vim",
+                    lineNumbers: true,
+                    viewportMargin: Infinity
+                });
+                approvalEditors[pr.issue_url] = cm;
+            });
         } catch(e) {}
     }
 
     window.approvePR = async function(issueUrl) {
         try {
+            const cm = approvalEditors[issueUrl];
+            const editedCode = cm ? cm.getValue() : null;
+            
             await fetch(`${API_BASE}/approvals/approve`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ issue_url: issueUrl })
+                body: JSON.stringify({ issue_url: issueUrl, edited_code: editedCode })
             });
+            delete approvalEditors[issueUrl];
+            // Force re-render
+            const approvalsContainer = document.getElementById('approvals-container');
+            approvalsContainer.innerHTML = '';
             fetchApprovals();
             fetchPRs();
         } catch(e) {
@@ -221,6 +252,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ issue_url: issueUrl })
             });
+            delete approvalEditors[issueUrl];
+            // Force re-render
+            const approvalsContainer = document.getElementById('approvals-container');
+            approvalsContainer.innerHTML = '';
             fetchApprovals();
             fetchPRs();
         } catch(e) {

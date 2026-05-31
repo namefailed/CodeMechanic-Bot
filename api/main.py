@@ -27,6 +27,7 @@ ACTIVITY_LOG = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ollama_
 ORCHESTRATOR_LOG = os.path.join(os.path.dirname(os.path.dirname(__file__)), "bugbot.log")
 UI_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ui")
 BOT_PROCESS = None
+LOG_FILE_HANDLE = None
 
 def load_env_from_config():
     """Ensures environment variables like GITHUB_TOKEN are loaded for standalone agents."""
@@ -55,7 +56,7 @@ def get_status():
 
 @app.post("/api/bot/start")
 def start_bot(stealth: bool = False):
-    global BOT_PROCESS
+    global BOT_PROCESS, LOG_FILE_HANDLE
     if BOT_PROCESS and psutil.pid_exists(BOT_PROCESS.pid):
         return {"message": "Already running"}
     
@@ -66,21 +67,31 @@ def start_bot(stealth: bool = False):
     cwd = os.path.dirname(os.path.dirname(__file__))
     
     # Open the log file to pipe stdout and stderr
-    log_file = open(ORCHESTRATOR_LOG, "a", encoding="utf-8")
-    BOT_PROCESS = subprocess.Popen(cmd, cwd=cwd, stdout=log_file, stderr=subprocess.STDOUT)
+    LOG_FILE_HANDLE = open(ORCHESTRATOR_LOG, "a", encoding="utf-8")
+    BOT_PROCESS = subprocess.Popen(cmd, cwd=cwd, stdout=LOG_FILE_HANDLE, stderr=subprocess.STDOUT)
     return {"message": "Bot started"}
 
 @app.post("/api/bot/stop")
 def stop_bot():
-    global BOT_PROCESS
+    global BOT_PROCESS, LOG_FILE_HANDLE
     if BOT_PROCESS and psutil.pid_exists(BOT_PROCESS.pid):
-        parent = psutil.Process(BOT_PROCESS.pid)
-        for child in parent.children(recursive=True):
-            child.terminate()
-        parent.terminate()
+        try:
+            parent = psutil.Process(BOT_PROCESS.pid)
+            for child in parent.children(recursive=True):
+                child.terminate()
+            parent.terminate()
+        except psutil.NoSuchProcess:
+            pass
         BOT_PROCESS = None
-        return {"message": "Bot stopped"}
-    return {"message": "Not running"}
+        
+    if LOG_FILE_HANDLE:
+        try:
+            LOG_FILE_HANDLE.close()
+        except Exception:
+            pass
+        LOG_FILE_HANDLE = None
+        
+    return {"message": "Bot stopped"}
 
 @app.get("/api/config")
 def get_config():
@@ -123,12 +134,25 @@ def get_logs():
     if not os.path.exists(ORCHESTRATOR_LOG):
         return {"logs": "No logs yet."}
     try:
-        with open(ORCHESTRATOR_LOG, "r", encoding="utf-8") as f:
-            # Return last 200 lines
-            lines = f.readlines()
-            return {"logs": "".join(lines[-200:])}
-    except:
-        return {"logs": "Error reading logs."}
+        # Efficient tail: read from end of file
+        with open(ORCHESTRATOR_LOG, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            file_size = f.tell()
+            # Read last 16KB which should cover a couple hundred lines
+            bytes_to_read = min(16384, file_size)
+            f.seek(file_size - bytes_to_read, os.SEEK_SET)
+            content = f.read().decode("utf-8", errors="replace")
+            
+        # Return lines (skipping the first potentially partial line)
+        lines = content.split('\n')
+        if len(lines) > 200:
+            return {"logs": '\n'.join(lines[-200:])}
+        else:
+            if bytes_to_read == file_size:
+                return {"logs": '\n'.join(lines)}
+            return {"logs": '\n'.join(lines[1:])}
+    except Exception as e:
+        return {"logs": f"Error reading logs: {e}"}
 
 class ApprovalRequest(BaseModel):
     issue_url: str

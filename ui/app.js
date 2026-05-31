@@ -97,14 +97,67 @@ document.addEventListener('DOMContentLoaded', () => {
             // Check if user is scrolled to the bottom (within 50px)
             const isScrolledToBottom = terminalOutput.scrollHeight - terminalOutput.clientHeight <= terminalOutput.scrollTop + 50;
             
-            terminalOutput.innerHTML = colorizeLogs(data.logs);
+            if (terminalOutput.dataset.rawLogs === data.logs) return;
+            terminalOutput.dataset.rawLogs = data.logs;
+            
+            const currentScrollTop = terminalOutput.scrollTop;
+            
+            let colorized = colorizeLogs(data.logs);
+            // Loop detection highlight
+            colorized = colorized.replace(/(Loop detected — read '.*?' 3 times in a row)/g, '<span style="background: rgba(245,158,11,0.2); padding: 2px 4px; border-radius: 4px;">$1</span>');
+            
+            terminalOutput.innerHTML = colorized;
             
             // auto scroll only if they were already at the bottom
             if (isScrolledToBottom) {
                 terminalOutput.scrollTop = terminalOutput.scrollHeight;
+            } else {
+                terminalOutput.scrollTop = currentScrollTop;
             }
         } catch(e) {}
     }
+
+    // Fetch Current Issue
+    async function fetchCurrentIssue() {
+        try {
+            const res = await fetch(`${API_BASE}/bot/current`);
+            const data = await res.json();
+            const badge = document.getElementById('current-issue-badge');
+            if (data && data.repo && data.title) {
+                badge.style.display = 'inline-block';
+                badge.textContent = `Processing: ${data.repo} - ${data.title}`;
+            } else {
+                badge.style.display = 'none';
+            }
+        } catch(e) {}
+    }
+
+    // Command Bar Actions
+    document.getElementById('send-nudge-btn').addEventListener('click', async () => {
+        const input = document.getElementById('nudge-input');
+        if (!input.value.trim()) return;
+        try {
+            await fetch(`${API_BASE}/bot/nudge`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: input.value })
+            });
+            input.value = '';
+        } catch (e) { alert('Failed to send nudge'); }
+    });
+
+    document.getElementById('reset-loop-btn').addEventListener('click', async () => {
+        try {
+            await fetch(`${API_BASE}/bot/reset-loop`, { method: 'POST' });
+        } catch (e) { alert('Failed to reset loop'); }
+    });
+
+    document.getElementById('skip-issue-btn').addEventListener('click', async () => {
+        try {
+            await fetch(`${API_BASE}/bot/skip`, { method: 'POST' });
+        } catch (e) { alert('Failed to skip issue'); }
+    });
+
 
     const copyLogsBtn = document.getElementById('copy-logs-btn');
     if (copyLogsBtn) {
@@ -145,24 +198,62 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await res.json();
             
             if(data.length === 0) {
-                aiContainer.innerHTML = '<p style="color: var(--text-secondary)">No engine activity logged yet.</p>';
+                if (aiContainer.dataset.rawActivity !== "empty") {
+                    aiContainer.innerHTML = '<p style="color: var(--text-secondary)">No engine activity logged yet.</p>';
+                    aiContainer.dataset.rawActivity = "empty";
+                }
                 return;
             }
             
+            const dataStr = JSON.stringify(data);
+            if (aiContainer.dataset.rawActivity === dataStr) return;
+            aiContainer.dataset.rawActivity = dataStr;
+            
             // Show latest first
-            aiContainer.innerHTML = data.reverse().map(act => `
+            aiContainer.innerHTML = data.reverse().map(act => {
+                // Parse AI prompt and response to separate <think> blocks and highlight <call> or <file> tags
+                let parsedResponse = escapeHtml(act.response);
+                let thinkContent = "";
+                
+                // Extract <think>...</think>
+                const thinkRegex = /&lt;think&gt;([\s\S]*?)&lt;\/think&gt;/i;
+                const thinkMatch = parsedResponse.match(thinkRegex);
+                if (thinkMatch) {
+                    thinkContent = thinkMatch[1];
+                    parsedResponse = parsedResponse.replace(thinkRegex, '');
+                }
+
+                // Highlight <call>...</call>
+                parsedResponse = parsedResponse.replace(/(&lt;call&gt;[\s\S]*?&lt;\/call&gt;)/gi, '<span style="color: var(--accent); font-weight: bold;">$1</span>');
+                
+                // Highlight <file ...>...</file>
+                parsedResponse = parsedResponse.replace(/(&lt;file path=&quot;.*?&quot;&gt;)/gi, '<span style="color: var(--success); font-weight: bold;">$1</span>');
+                parsedResponse = parsedResponse.replace(/(&lt;\/file&gt;)/gi, '<span style="color: var(--success); font-weight: bold;">$1</span>');
+
+                let thinkHtml = thinkContent ? `<div class="ai-think-block" style="background: rgba(255,255,255,0.05); border-left: 4px solid var(--text-secondary); color: var(--text-secondary); padding: 12px; margin-bottom: 12px; font-style: italic; font-size: 0.9em; white-space: pre-wrap;">${thinkContent}</div>` : '';
+
+                return `
                 <div class="ai-card glass-panel">
                     <div class="ai-meta">
-                        <span class="ai-agent-badge">${act.agent}</span>
+                        <span class="ai-agent-badge">${escapeHtml(act.agent)}</span>
                         <span>${new Date(act.timestamp * 1000).toLocaleString()}</span>
                     </div>
                     <div class="ai-content">
                         <div class="ai-prompt">${escapeHtml(act.prompt)}</div>
-                        <div class="ai-response">${escapeHtml(act.response)}</div>
+                        <div class="ai-response">${thinkHtml}${parsedResponse}</div>
                     </div>
                 </div>
-            `).join('');
+            `;
+            }).join('');
         } catch(e) {}
+    }
+
+    // Pop Out Terminal
+    const popoutBtn = document.getElementById('popout-terminal-btn');
+    if (popoutBtn) {
+        popoutBtn.addEventListener('click', () => {
+            window.open('terminal.html', 'Live Terminal', 'width=800,height=600,menubar=no,toolbar=no,location=no,status=no');
+        });
     }
 
     // Fetch Config
@@ -315,13 +406,32 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await res.json();
             
             const statusCounts = data.status_counts || {};
-            const chartData = [
-                statusCounts['PAYOUT_CONFIRMED'] || 0,
-                statusCounts['SUBMITTED'] || 0,
-                (statusCounts['PENDING'] || 0) + (statusCounts['AWAITING_APPROVAL'] || 0),
-                (statusCounts['ABORTED'] || 0) + (statusCounts['REJECTED'] || 0) + (statusCounts['REJECTED_MANUALLY'] || 0)
-            ];
+            const paid = statusCounts['PAYOUT_CONFIRMED'] || 0;
+            const submitted = statusCounts['SUBMITTED'] || 0;
+            const pending = (statusCounts['PENDING'] || 0) + (statusCounts['AWAITING_APPROVAL'] || 0);
+            const aborted = (statusCounts['ABORTED'] || 0) + (statusCounts['REJECTED'] || 0) + (statusCounts['REJECTED_MANUALLY'] || 0);
+
+            const chartData = [paid, submitted, pending, aborted];
             
+            // Update Metric Cards
+            const totalSubmitted = submitted;
+            const totalMerged = paid;
+            const totalEarnings = Object.values(data.earnings || {}).reduce((a, b) => a + b, 0) || 0;
+            const totalAttempts = paid + submitted + pending + aborted + rejected;
+            const successRate = totalAttempts > 0 ? Math.round((totalMerged / totalAttempts) * 100) : 0;
+            
+            const prsSubmittedEl = document.getElementById('metric-prs-submitted');
+            if (prsSubmittedEl) prsSubmittedEl.textContent = totalSubmitted;
+            
+            const prsMergedEl = document.getElementById('metric-prs-merged');
+            if (prsMergedEl) prsMergedEl.textContent = totalMerged;
+            
+            const earningsEl = document.getElementById('metric-earnings');
+            if (earningsEl) earningsEl.textContent = totalEarnings.toFixed(2);
+            
+            const successRateEl = document.getElementById('metric-success-rate');
+            if (successRateEl) successRateEl.textContent = successRate + '%';
+
             if (vulnChartInstance) {
                 vulnChartInstance.data.datasets[0].data = chartData;
                 vulnChartInstance.update();
@@ -358,11 +468,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 labels: ['Paid', 'Submitted', 'Pending', 'Aborted/Rejected'],
                 datasets: [{
                     data: [0, 0, 0, 0],
-                    backgroundColor: ['#22c55e', '#3b82f6', '#fbbf24', '#ef4444'],
-                    borderWidth: 0
+                    backgroundColor: ['#10b981', '#3b82f6', '#f59e0b', '#ef4444'],
+                    borderWidth: 0,
+                    hoverOffset: 4
                 }]
             },
-            options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { color: '#cdd6f4' } } } }
+            options: { 
+                responsive: true, 
+                cutout: '70%',
+                plugins: { 
+                    legend: { position: 'bottom', labels: { color: '#cdd6f4', padding: 20, font: { family: 'Outfit', size: 12 } } },
+                    tooltip: { backgroundColor: 'rgba(15, 23, 42, 0.9)', titleColor: '#fff', bodyColor: '#fff', cornerRadius: 8, padding: 12 }
+                } 
+            }
         });
 
         roiChartInstance = new Chart(roiCtx, {
@@ -372,13 +490,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 datasets: [{
                     label: 'Earnings (RTC)',
                     data: [],
-                    borderColor: '#a6e3a1',
-                    backgroundColor: 'rgba(166, 227, 161, 0.1)',
+                    borderColor: '#10b981',
+                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
                     fill: true,
-                    tension: 0.4
+                    tension: 0.4,
+                    pointBackgroundColor: '#10b981',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 2,
+                    pointRadius: 4,
+                    pointHoverRadius: 6
                 }]
             },
-            options: { responsive: true, scales: { y: { ticks: { color: '#a6adc8' }, grid: {color: 'rgba(255,255,255,0.05)'} }, x: { ticks: { color: '#a6adc8' }, grid: {color: 'rgba(255,255,255,0.05)'} } }, plugins: { legend: { labels: { color: '#cdd6f4' } } } }
+            options: { 
+                responsive: true, 
+                scales: { 
+                    y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,0.05)', drawBorder: false } }, 
+                    x: { ticks: { color: '#94a3b8' }, grid: { display: false, drawBorder: false } } 
+                }, 
+                plugins: { 
+                    legend: { display: false },
+                    tooltip: { backgroundColor: 'rgba(15, 23, 42, 0.9)', titleColor: '#fff', bodyColor: '#fff', cornerRadius: 8, padding: 12, displayColors: false }
+                } 
+            }
         });
         
         fetchAnalytics();
@@ -391,11 +524,13 @@ document.addEventListener('DOMContentLoaded', () => {
     fetchAIActivity();
     fetchConfig();
     fetchApprovals();
+    fetchCurrentIssue();
     setTimeout(initCharts, 500);
 
     // Polling
     setInterval(fetchStatus, 5000);
     setInterval(fetchLogs, 2000);
+    setInterval(fetchCurrentIssue, 3000);
     setInterval(fetchPRs, 10000);
     setInterval(fetchAIActivity, 10000);
     setInterval(fetchApprovals, 10000);

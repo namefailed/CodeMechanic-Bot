@@ -132,6 +132,10 @@ class CodeReviewer:
                     cfg = yaml.safe_load(f) or {}
                     manual_approval_required = cfg.get("manual_approval", False)
 
+            if str(issue_number).startswith("AUTO_"):
+                manual_approval_required = True
+                logger.info("CodeReviewer: Security vulnerabilities discovered by StaticAnalyzer ALWAYS require manual approval to prevent full disclosure.")
+
             if manual_approval_required:
                 logger.info(f"CodeReviewer: Manual Approval Required. Saving to pending approvals.")
                 import json
@@ -182,6 +186,17 @@ class CodeReviewer:
                         headers = {"Authorization": f"token {self.github_token}", "Accept": "application/vnd.github.v3+json"}
                         requests.delete(f"https://api.github.com/repos/{repo_name}/issues/comments/{comment_id}", headers=headers, timeout=10)
                     except:
+                        pass
+                
+                # Delete fork if it exists
+                if self.github_token:
+                    try:
+                        res = requests.get("https://api.github.com/user", headers={"Authorization": f"token {self.github_token}"})
+                        if res.status_code == 200:
+                            login = res.json().get("login")
+                            fork_name = repo_name.split("/")[-1]
+                            requests.delete(f"https://api.github.com/repos/{login}/{fork_name}", headers={"Authorization": f"token {self.github_token}"})
+                    except Exception as e:
                         pass
                 
                 # Mark as aborted in DB

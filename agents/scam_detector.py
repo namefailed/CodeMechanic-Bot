@@ -122,6 +122,21 @@ class ScamDetector:
                 self.publish_event(ScamDetectedEvent(payload={"repo": repo_name, "reason": "0 merged PRs"}))
                 return
 
+            # 3. Check if issue is already claimed in comments
+            issue_number = payload.get("issue_number")
+            if issue_number:
+                comments_url = f"https://api.github.com/repos/{repo_name}/issues/{issue_number}/comments"
+                comments_res = session.get(comments_url, timeout=self.timeout)
+                if comments_res.status_code == 200:
+                    for comment in comments_res.json():
+                        body = comment.get("body", "").lower()
+                        # Simple heuristics to detect if someone claimed it
+                        if any(phrase in body for phrase in ["working on this", "will submit a pr", "i'll take this", "i am working on", "i can do this"]):
+                            logger.warning(f"ScamDetector: {repo_name}#{issue_number} rejected - Already claimed in comments.")
+                            self.eval_cache[repo_name] = "Already claimed in comments"
+                            self.publish_event(ScamDetectedEvent(payload={"repo": repo_name, "reason": "Already claimed in comments"}))
+                            return
+
             logger.info(f"ScamDetector: {repo_name} passed all heuristics!")
             self.eval_cache[repo_name] = "PASS"
             self.publish_event(BountyVerifiedEvent(payload=payload))

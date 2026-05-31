@@ -59,7 +59,7 @@ class PRMaintainer:
                 author = last_comment.get("user", {}).get("login")
                 
                 # If it's not us, treat as feedback
-                if author != login:
+                if author != login and "[bot]" not in author.lower() and not author.lower().endswith("bot"):
                     comment_id = str(last_comment.get("id"))
                     pr_url = pr.get("html_url")
                     

@@ -153,6 +153,60 @@ def stop_bot():
         
     return {"message": "Bot stopped"}
 
+@app.get("/api/bot/current")
+def get_current_bot_state():
+    state_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "bot_state.json")
+    if os.path.exists(state_file):
+        try:
+            with open(state_file, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+class NudgeRequest(BaseModel):
+    message: str
+
+@app.post("/api/bot/nudge")
+def post_nudge(req: NudgeRequest):
+    nudge_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "nudge.txt")
+    with open(nudge_file, "a") as f:
+        f.write(req.message + "\n")
+    return {"message": "Nudge submitted"}
+
+@app.post("/api/bot/skip")
+def skip_issue():
+    # Signal PR engineer to skip current loop
+    skip_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "skip.signal")
+    with open(skip_file, "w") as f:
+        f.write("skip")
+    
+    # Try to mark the currently processing issue as aborted in DB
+    state_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "bot_state.json")
+    if os.path.exists(state_file):
+        try:
+            with open(state_file, "r") as f:
+                state = json.load(f)
+            url = state.get("url")
+            repo = state.get("repo")
+            if url and repo and os.path.exists(DB_PATH):
+                conn = sqlite3.connect(DB_PATH)
+                cur = conn.cursor()
+                cur.execute("UPDATE processed_issues SET status = 'ABORTED' WHERE issue_url = ?", (url,))
+                conn.commit()
+                conn.close()
+        except Exception:
+            pass
+    return {"message": "Skip signal sent"}
+
+@app.post("/api/bot/reset-loop")
+def reset_loop():
+    # Signal PR engineer to skip current loop but we don't abort it in DB, so it will retry
+    skip_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "skip.signal")
+    with open(skip_file, "w") as f:
+        f.write("skip")
+    return {"message": "Reset loop signal sent"}
+
 @app.get("/api/config")
 def get_config():
     if not os.path.exists(CONFIG_PATH):
@@ -231,8 +285,8 @@ def get_logs():
         with open(ORCHESTRATOR_LOG, "rb") as f:
             f.seek(0, os.SEEK_END)
             file_size = f.tell()
-            # Read last 16KB which should cover a couple hundred lines
-            bytes_to_read = min(16384, file_size)
+            # Read last 150KB which should cover over a thousand lines
+            bytes_to_read = min(150000, file_size)
             f.seek(file_size - bytes_to_read, os.SEEK_SET)
             content = f.read().decode("utf-8", errors="replace")
             

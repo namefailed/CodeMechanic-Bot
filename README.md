@@ -15,7 +15,7 @@ Runs every 30 minutes to scan GitHub, Algora, and Polar for low-competition, hig
 
 ### 2. The Zero-Day Researcher
 Runs continuously in the background (pausing only when the Bounty Hunter wakes up) to audit massive open-source repositories for unknown vulnerabilities.
-- **Semgrep**: Scans for complex logic bugs and syntax vulnerabilities.
+- **Semgrep**: Scans for complex logic bugs and syntax vulnerabilities. Any discovered security vulnerabilities are ALWAYS intercepted for manual approval in the dashboard to prevent public "full disclosure" on GitHub.
 - **Trivy**: Scans for Infrastructure-as-Code misconfigurations and outdated CVEs.
 - **Gitleaks**: Hunts for leaked API keys, database credentials, and webhooks (flagging them for manual review rather than public PRs).
 
@@ -26,7 +26,8 @@ Runs continuously in the background (pausing only when the Bounty Hunter wakes u
 - **Docker Auto-Testing**: Spins up a language-specific container (Node, Python, Rust, Go, Java, Ruby, PHP) and executes the repository's test suite against the AI's generated code. Dynamically reconnects to Docker daemons to survive host restarts.
 - **Self-Healing LLM**: If local unit tests fail, the stderr logs are fed *back* into the LLM for up to 2 autonomous retry attempts before submitting.
 - **Multi-Model Fallbacks**: Uses `gemma3:4b` locally via Ollama, but gracefully falls back to `llama3` or `mistral` if the primary model fails. Models are configurable in `config.yaml`.
-- **Premium Web Dashboard**: A built-in FastAPI web dashboard featuring a stunning Catppuccin Mocha theme, glassmorphism UI, and a fully functional CodeMirror editor with Vim keybindings for manual config overrides.
+- **Intelligent Sandbox Testing**: Spins up a language-specific Docker container to execute the repository's test suite against the AI's generated code. Intelligently skips sandbox testing for complex hybrid C++ projects (e.g. `CMakeLists.txt`) to avoid endless false-negative retry loops.
+- **Premium Web Dashboard**: A built-in FastAPI web dashboard featuring a stunning Catppuccin Mocha theme, real-time log terminal feed, Submission vs Merge Rate analytics, and a fully functional CodeMirror editor with Vim keybindings for manual config overrides.
 
 ## Documentation
 

@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Terminal - CodeMechanic</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            background-color: #0f172a;
+            color: #10b981;
+            font-family: 'JetBrains Mono', 'Consolas', monospace;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .terminal-header {
+            background: rgba(15, 23, 42, 0.95);
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5);
+        }
+        .mac-btn {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+        .mac-btn.close { background: #ff5f56; box-shadow: 0 0 10px rgba(255, 95, 86, 0.5); }
+        .mac-btn.min { background: #ffbd2e; box-shadow: 0 0 10px rgba(255, 189, 46, 0.5); }
+        .mac-btn.max { background: #27c93f; box-shadow: 0 0 10px rgba(39, 201, 63, 0.5); }
+        .title {
+            margin-left: auto;
+            margin-right: auto;
+            font-size: 0.85rem;
+            color: #64748b;
+            letter-spacing: 0.5px;
+        }
+        #terminal-output {
+            flex: 1;
+            padding: 24px;
+            font-size: 0.95rem;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            line-height: 1.6;
+            background: rgba(0, 0, 0, 0.6);
+            text-shadow: 0 0 2px rgba(16, 185, 129, 0.4);
+        }
+        #terminal-output::after {
+            content: '_';
+            animation: blink 1s step-end infinite;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.2); }
+        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+    </style>
+</head>
+<body>
+    <div class="terminal-header">
+        <span class="mac-btn close"></span>
+        <span class="mac-btn min"></span>
+        <span class="mac-btn max"></span>
+        <span class="title">orchestrator.log <span id="current-issue-badge" style="display:none; background:#3b82f6; padding:2px 8px; border-radius:4px; font-size:11px; margin-left:10px; color:white; font-weight:bold;"></span></span>
+    </div>
+    <pre id="terminal-output"></pre>
+
+    <script>
+        const API_BASE = 'http://localhost:8000/api';
+        const terminalOutput = document.getElementById('terminal-output');
+
+        function escapeHtml(unsafe) {
+            return (unsafe == null ? '' : String(unsafe))
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        function colorizeLogs(logs) {
+            return escapeHtml(logs)
+                .replace(/^(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2},\d{3})/gm, '<span style="color: #64748b">$1</span>')
+                .replace(/-\s(INFO)\s-/g, '- <span style="color: #cba6f7">$1</span> -')
+                .replace(/-\s(WARNING)\s-/g, '- <span style="color: #fbbf24">$1</span> -')
+                .replace(/-\s(ERROR)\s-/g, '- <span style="color: #f38ba8">$1</span> -')
+                .replace(/(Exception|Failed|violently reject)/gi, '<span style="color: #f38ba8">$1</span>')
+                .replace(/(SUCCESS|APPROVED|Submitting PR)/gi, '<span style="color: #a6e3a1">$1</span>');
+        }
+
+        async function fetchLogs() {
+            try {
+                const res = await fetch(`${API_BASE}/logs`);
+                const data = await res.json();
+                
+                const isScrolledToBottom = terminalOutput.scrollHeight - terminalOutput.clientHeight <= terminalOutput.scrollTop + 50;
+                if (terminalOutput.dataset.rawLogs === data.logs) return;
+                
+                terminalOutput.dataset.rawLogs = data.logs;
+                const currentScrollTop = terminalOutput.scrollTop;
+                
+                let colorized = colorizeLogs(data.logs);
+                colorized = colorized.replace(/(Loop detected — read '.*?' 3 times in a row)/g, '<span style="background: rgba(245,158,11,0.2); padding: 2px 4px; border-radius: 4px;">$1</span>');
+                
+                terminalOutput.innerHTML = colorized;
+                
+                if (isScrolledToBottom) {
+                    terminalOutput.scrollTop = terminalOutput.scrollHeight;
+                } else {
+                    terminalOutput.scrollTop = currentScrollTop;
+                }
+            } catch(e) {}
+        }
+
+        async function fetchCurrentIssue() {
+            try {
+                const res = await fetch(`${API_BASE}/bot/current`);
+                const data = await res.json();
+                const badge = document.getElementById('current-issue-badge');
+                if (data && data.repo && data.title) {
+                    badge.style.display = 'inline-block';
+                    badge.textContent = `Processing: ${data.repo} - ${data.title}`;
+                } else {
+                    badge.style.display = 'none';
+                }
+            } catch(e) {}
+        }
+
+        fetchLogs();
+        fetchCurrentIssue();
+        setInterval(fetchLogs, 2000);
+        setInterval(fetchCurrentIssue, 3000);
+    </script>
+</body>
+</html>

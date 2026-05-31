@@ -43,7 +43,7 @@ class StaticAnalyzer:
         logger.info(f"StaticAnalyzer: Running Semgrep on {repo_name}...")
         try:
             output = self.docker_client.containers.run(
-                "returntocorp/semgrep:latest",
+                "semgrep/semgrep:latest",
                 command="semgrep scan --config auto --json /src",
                 volumes={repo_path: {'bind': '/src', 'mode': 'ro'}},
                 remove=True,

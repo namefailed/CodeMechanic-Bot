@@ -20,8 +20,8 @@ governance:
       
 model:
   provider: "ollama"
-  primary: "gemma3:4b"
+  primary: "gemma4:e4b"
   fallbacks:
-    - "llama3"
-    - "mistral"
+    - "qwen2.5-coder:7b"
+    - "qwen2.5-coder:3b"
   endpoint: "http://localhost:11434"

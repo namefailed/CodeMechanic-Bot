@@ -71,6 +71,30 @@
                     <h2>Analytics & Performance</h2>
                     <p>Insights into vulnerability types and ROI.</p>
                 </header>
+                
+                <div class="metrics-container" style="display: flex; gap: 20px; margin-bottom: 24px;">
+                    <div class="metric-card glass-panel" style="flex: 1; padding: 20px; text-align: center;">
+                        <div style="font-size: 0.9rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px;">Total PRs Submitted</div>
+                        <div id="metric-prs-submitted" style="font-size: 2.5rem; font-weight: 800; color: var(--success); margin-top: 10px;">0</div>
+                    </div>
+                    <div class="metric-card glass-panel" style="flex: 1; padding: 20px; text-align: center;">
+                        <div style="font-size: 0.9rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px;">Total PRs Merged</div>
+                        <div id="metric-prs-merged" style="font-size: 2.5rem; font-weight: 800; color: var(--accent); margin-top: 10px;">0</div>
+                    </div>
+                    <div class="metric-card glass-panel" style="flex: 1; padding: 20px; text-align: center;">
+                        <div style="font-size: 0.9rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px;">Earnings (RTC)</div>
+                        <div id="metric-earnings" style="font-size: 2.5rem; font-weight: 800; color: var(--accent); margin-top: 10px;">$0</div>
+                    </div>
+                    <div class="metric-card glass-panel" style="flex: 1; padding: 20px; text-align: center;">
+                        <div style="font-size: 0.9rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px;">Submission Rate</div>
+                        <div id="metric-success-rate" style="font-size: 2.5rem; font-weight: 800; color: var(--success); margin-top: 10px;">0%</div>
+                    </div>
+                    <div class="metric-card glass-panel" style="flex: 1; padding: 20px; text-align: center;">
+                        <div style="font-size: 0.9rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px;">Merge Rate</div>
+                        <div id="metric-merge-rate" style="font-size: 2.5rem; font-weight: 800; color: var(--accent); margin-top: 10px;">0%</div>
+                    </div>
+                </div>
+
                 <div class="analytics-grid">
                     <div class="glass-panel chart-container">
                         <h3>PR Resolution Status</h3>
@@ -85,19 +109,28 @@
 
             <!-- Terminal Tab -->
             <section id="terminal" class="tab-content">
-                <header class="section-header">
-                    <h2>Live Terminal</h2>
-                    <p>Direct output from the orchestrator.</p>
+                <header class="section-header" style="display: flex; justify-content: space-between; align-items: flex-start;">
+                    <div>
+                        <h2>Live Terminal</h2>
+                        <p>Direct output from the orchestrator.</p>
+                    </div>
+                    <button id="popout-terminal-btn" class="action-btn" style="width: auto; padding: 8px 16px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">Pop Out ↗</button>
                 </header>
                 <div class="terminal-window glass-panel">
                     <div class="terminal-header">
                         <span class="mac-btn close"></span>
                         <span class="mac-btn min"></span>
                         <span class="mac-btn max"></span>
-                        <span class="title">orchestrator.log</span>
-                        <button id="copy-logs-btn" class="action-btn" style="padding: 4px 8px; font-size: 0.7rem; width: auto; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);">Copy</button>
+                        <span class="title">orchestrator.log <span id="current-issue-badge" style="display:none; background:#3b82f6; padding:2px 8px; border-radius:4px; font-size:11px; margin-left:10px; color:white; font-weight:bold;"></span></span>
+                        <button id="copy-logs-btn" class="action-btn" style="padding: 4px 8px; font-size: 0.7rem; width: auto; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); margin-left: 10px;">Copy</button>
                     </div>
                     <pre id="terminal-output" class="terminal-body"></pre>
+                    <div class="terminal-command-bar" style="display:flex; gap:10px; padding:12px; background:rgba(15,23,42,0.95); border-top:1px solid rgba(255,255,255,0.1); align-items: center;">
+                        <input type="text" id="nudge-input" placeholder="Nudge the bot (e.g. 'focus on CLI parsing')..." style="flex:1; background:rgba(0,0,0,0.5); border:1px solid rgba(255,255,255,0.2); color:white; padding:8px 12px; border-radius:6px; font-family:'JetBrains Mono', monospace; font-size: 0.9rem; outline:none;" />
+                        <button id="send-nudge-btn" class="action-btn" style="width:auto; padding:8px 16px; font-size:0.9rem;">Nudge</button>
+                        <button id="reset-loop-btn" class="action-btn" style="width:auto; padding:8px 16px; background:#f59e0b; font-size:0.9rem;">Reset Loop</button>
+                        <button id="skip-issue-btn" class="action-btn" style="width:auto; padding:8px 16px; background:#ef4444; font-size:0.9rem;">Skip Issue</button>
+                    </div>
                 </div>
             </section>
 

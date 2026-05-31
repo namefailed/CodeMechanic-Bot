@@ -10,6 +10,7 @@ import logging
 import requests
 from events import PRReviewedEvent
 from typing import Callable, Any
+from utils.github_api import SafeGitHubSession
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -48,7 +49,8 @@ class ReviewTracker:
         
         try:
             url = "https://api.github.com/search/issues?q=is:pr is:open author:@me"
-            response = requests.get(url, headers=headers, timeout=self.timeout)
+            session = SafeGitHubSession()
+            response = session.get(url, headers=headers, timeout=self.timeout)
             response.raise_for_status()
             data = response.json()
             items = data.get("items", [])

@@ -46,13 +46,22 @@ class PREngineer:
         self.timeout = 600
         self.db = Database()
         
-        # Ensure docker is availableout in seconds (Increased for heavy local AI generation)
-        
+        # Ensure docker is available
+        self._docker_client = None
+
+    @property
+    def docker_client(self):
+        """Dynamically fetch the docker client to survive daemon restarts."""
         try:
-            self.docker_client = docker.from_env()
+            if not self._docker_client:
+                self._docker_client = docker.from_env()
+            else:
+                self._docker_client.ping()
+            return self._docker_client
         except Exception as e:
-            logger.warning(f"PREngineer: Docker client failed to initialize: {e}. Sandboxing disabled.")
-            self.docker_client = None
+            logger.warning(f"PREngineer: Docker client failed to initialize or reconnect: {e}. Sandboxing disabled.")
+            self._docker_client = None
+            return None
 
     def get_session(self):
         """Returns a configured requests session for AI or API queries."""

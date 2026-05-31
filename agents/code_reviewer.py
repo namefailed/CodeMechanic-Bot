@@ -197,10 +197,11 @@ class CodeReviewer:
             forked_repo_name = fork_res.json().get("name")
             
             try:
-                self.run_with_retry(["git", "checkout", "-b", branch_name], cwd=workspace_path, capture_output=True, text=True)
-            except Exception:
-                # Fallback if branch already exists
-                self.run_with_retry(["git", "checkout", branch_name], cwd=workspace_path, capture_output=True, text=True)
+                # Use -B to forcefully create or reset the branch, avoiding edge cases
+                self.run_with_retry(["git", "checkout", "-B", branch_name], cwd=workspace_path, capture_output=True, text=True)
+            except Exception as e:
+                logger.error(f"CodeReviewer: Failed to checkout branch {branch_name}: {e}")
+                return False
                 
             # Parse proposed_fix and write to disk (CRITICAL for Manual UI Edits)
             import re

@@ -19,11 +19,20 @@ class StaticAnalyzer:
         self.workspace_root = os.path.join(os.getcwd(), "workspaces")
         os.makedirs(self.workspace_root, exist_ok=True)
         self.github_token = os.environ.get("GITHUB_TOKEN", None)
+        self._docker_client = None
+
+    @property
+    def docker_client(self):
         try:
-            self.docker_client = docker.from_env()
+            if not self._docker_client:
+                self._docker_client = docker.from_env()
+            else:
+                self._docker_client.ping()
+            return self._docker_client
         except Exception as e:
-            logger.warning(f"StaticAnalyzer: Docker disabled. {e}")
-            self.docker_client = None
+            logger.warning(f"StaticAnalyzer: Docker disabled or disconnected. {e}")
+            self._docker_client = None
+            return None
 
     def get_session(self):
         return SafeGitHubSession()

@@ -24,29 +24,7 @@ body {
     overflow: hidden;
 }
 
-/* Background gradient blobs */
-body::before, body::after {
-    content: '';
-    position: absolute;
-    width: 600px;
-    height: 600px;
-    border-radius: 50%;
-    filter: blur(100px);
-    z-index: -1;
-    opacity: 0.15;
-}
-
-body::before {
-    background: #cba6f7;
-    top: -200px;
-    left: -200px;
-}
-
-body::after {
-    background: #89b4fa;
-    bottom: -200px;
-    right: -200px;
-}
+/* Background removed for cleaner aesthetic */
 
 .app-container {
     display: flex;
@@ -397,13 +375,13 @@ body::after {
 }
 
 .ai-prompt::before {
-    content: 'HUMAN_PROMPT';
+    content: 'SYSTEM_TRACE';
     background: rgba(59, 130, 246, 0.2);
     color: #93c5fd;
 }
 
 .ai-response::before {
-    content: 'AI_RESPONSE';
+    content: 'ENGINE_OUTPUT';
     background: rgba(16, 185, 129, 0.2);
     color: #6ee7b7;
 }

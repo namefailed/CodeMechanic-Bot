@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BugBot Dashboard</title>
+    <title>CodeMechanic Dashboard</title>
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css">
@@ -19,7 +19,7 @@
         <aside class="sidebar glass-panel">
             <div class="brand">
                 <div class="logo"></div>
-                <h1>BugBot</h1>
+                <h1>CodeMechanic</h1>
             </div>
             
             <nav class="tabs">
@@ -27,7 +27,7 @@
                 <button class="tab-btn" data-tab="approvals">Manual Approvals</button>
                 <button class="tab-btn" data-tab="analytics">Analytics</button>
                 <button class="tab-btn" data-tab="terminal">Terminal Feed</button>
-                <button class="tab-btn" data-tab="ai">AI Auditing</button>
+                <button class="tab-btn" data-tab="ai">Engine Logs</button>
                 <button class="tab-btn" data-tab="settings">Settings</button>
             </nav>
             
@@ -94,20 +94,20 @@
                         <span class="mac-btn close"></span>
                         <span class="mac-btn min"></span>
                         <span class="mac-btn max"></span>
-                        <span class="title">bugbot.log</span>
+                        <span class="title">orchestrator.log</span>
                     </div>
                     <pre id="terminal-output" class="terminal-body"></pre>
                 </div>
             </section>
 
-            <!-- AI Auditing Tab -->
+            <!-- Engine Logs Tab -->
             <section id="ai" class="tab-content">
                 <header class="section-header">
-                    <h2>AI Activity Feed</h2>
-                    <p>Monitor raw prompts and generated code from the local Ollama models.</p>
+                    <h2>Engine Logs</h2>
+                    <p>Monitor system traces and model execution logs.</p>
                 </header>
                 <div class="ai-feed" id="ai-container">
-                    <!-- AI Activity cards injected here -->
+                    <!-- Engine log cards injected here -->
                 </div>
             </section>
 

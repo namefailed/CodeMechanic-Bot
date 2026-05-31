@@ -116,7 +116,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await res.json();
             
             if(data.length === 0) {
-                aiContainer.innerHTML = '<p style="color: var(--text-secondary)">No AI activity logged yet.</p>';
+                aiContainer.innerHTML = '<p style="color: var(--text-secondary)">No engine activity logged yet.</p>';
                 return;
             }
             
@@ -200,7 +200,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div style="margin: 10px 0;">
                         <textarea id="approval-editor-${idx}"></textarea>
                     </div>
-                    <p style="font-size: 0.85rem; color: #aaa;"><strong>AI Review:</strong><br>${escapeHtml(pr.ai_summary)}</p>
+                    <p style="font-size: 0.85rem; color: #aaa;"><strong>Engine Review:</strong><br>${escapeHtml(pr.ai_summary)}</p>
                     <div style="display: flex; gap: 10px; margin-top: 15px;">
                         <button class="action-btn" onclick="approvePR('${pr.issue_url}', ${idx})" style="background: var(--success); color: #000;">Approve & Submit</button>
                         <button class="action-btn" onclick="rejectPR('${pr.issue_url}')" style="background: var(--danger); color: #fff;">Reject</button>

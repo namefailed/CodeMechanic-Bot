@@ -202,6 +202,27 @@ class CodeReviewer:
                 # Fallback if branch already exists
                 self.run_with_retry(["git", "checkout", branch_name], cwd=workspace_path, capture_output=True, text=True)
                 
+            # Parse proposed_fix and write to disk (CRITICAL for Manual UI Edits)
+            import re
+            pattern = r'<file path="([^"]+)">\s*(.*?)\s*</file>'
+            matches = list(re.finditer(pattern, proposed_fix, re.DOTALL | re.IGNORECASE))
+            if matches:
+                logger.info("CodeReviewer: Applying UI edits to workspace...")
+                for match in matches:
+                    filepath = match.group(1).strip()
+                    code = match.group(2)
+                    if code.startswith("```"):
+                        code = re.sub(r'^```[a-zA-Z]*\n', '', code)
+                    if code.endswith("```"):
+                        code = code[:-3].rstrip()
+                    if code.endswith("```\n"):
+                        code = code[:-4].rstrip()
+                    full_path = os.path.join(workspace_path, filepath.lstrip('/'))
+                    if ".." not in filepath:
+                        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+                        with open(full_path, "w", encoding="utf-8") as f:
+                            f.write(code)
+                
             if not modified_files:
                 logger.warning(f"CodeReviewer: No modified files provided for {repo_name}. Skipping PR submission.")
                 return False

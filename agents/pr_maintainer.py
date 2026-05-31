@@ -86,7 +86,7 @@ class PRMaintainer:
                         "issue_url": pr_url,
                         "retry_count": 1, # Triggers the retry logic in PREngineer
                         "reviewer_feedback": f"Maintainer {author} said: {last_comment.get('body')}",
-                        "workspace_path": os.path.join(os.getcwd(), "workspaces", repo_name.replace("/", "_")),
+                        "workspace_path": os.path.join(os.getcwd(), "workspaces", f"{repo_name.replace('/', '_')}_{pr.get('number')}"),
                         "is_maintainer_feedback": True
                     }
                     self.publish_event(MaintainerFeedbackEvent(payload=payload))

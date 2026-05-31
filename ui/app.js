@@ -25,6 +25,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const aiContainer = document.getElementById('ai-container');
     const configEditor = document.getElementById('config-editor');
     const saveConfigBtn = document.getElementById('save-config-btn');
+    
+    // Initialize CodeMirror
+    let editor = CodeMirror.fromTextArea(configEditor, {
+        mode: "yaml",
+        theme: "dracula",
+        keyMap: "vim",
+        lineNumbers: true,
+        viewportMargin: Infinity
+    });
 
     let botRunning = false;
 
@@ -132,17 +141,17 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const res = await fetch(`${API_BASE}/config`);
             const text = await res.text();
-            // Just displaying raw JSON or YAML. Since we respond with dict, it might be JSON.
-            // Let's format it.
             const data = JSON.parse(text);
-            // Dump as YAML conceptually or just JSON
-            configEditor.value = JSON.stringify(data, null, 2);
+            const formatted = JSON.stringify(data, null, 2);
+            configEditor.value = formatted;
+            editor.setValue(formatted);
         } catch(e) {}
     }
 
     // Save Config
     saveConfigBtn.addEventListener('click', async () => {
         try {
+            editor.save(); // sync CodeMirror to textarea
             const parsed = JSON.parse(configEditor.value);
             await fetch(`${API_BASE}/config`, {
                 method: 'POST',

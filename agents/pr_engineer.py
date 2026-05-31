@@ -391,8 +391,9 @@ class PREngineer:
             self.db.mark_issue(issue_url, repo_name, "PENDING")
             logger.info(f"PREngineer: Starting work on {repo_name} - {issue_title}")
 
-            # 2. Clone the repository safely
-            repo_path = os.path.join(self.workspace_root, repo_name.replace("/", "_"))
+            # 2. Clone the repository safely (Scoped by issue_number to prevent race condition nukes)
+            safe_issue_num = str(issue_number).replace("/", "_")
+            repo_path = os.path.join(self.workspace_root, f"{repo_name.replace('/', '_')}_{safe_issue_num}")
             if os.path.exists(repo_path):
                 logger.info(f"PREngineer: Cleaning up old workspace for {repo_name}...")
                 if os.name == 'nt':

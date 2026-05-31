@@ -28,6 +28,17 @@ ORCHESTRATOR_LOG = os.path.join(os.path.dirname(os.path.dirname(__file__)), "bug
 UI_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ui")
 BOT_PROCESS = None
 
+def load_env_from_config():
+    """Ensures environment variables like GITHUB_TOKEN are loaded for standalone agents."""
+    if os.path.exists(CONFIG_PATH):
+        try:
+            with open(CONFIG_PATH, "r") as f:
+                cfg = yaml.safe_load(f) or {}
+                if "github_token" in cfg:
+                    os.environ["GITHUB_TOKEN"] = cfg["github_token"]
+        except Exception:
+            pass
+
 @app.get("/api/status")
 def get_status():
     global BOT_PROCESS
@@ -53,7 +64,10 @@ def start_bot(stealth: bool = False):
         cmd.append("--stealth")
         
     cwd = os.path.dirname(os.path.dirname(__file__))
-    BOT_PROCESS = subprocess.Popen(cmd, cwd=cwd)
+    
+    # Open the log file to pipe stdout and stderr
+    log_file = open(ORCHESTRATOR_LOG, "a", encoding="utf-8")
+    BOT_PROCESS = subprocess.Popen(cmd, cwd=cwd, stdout=log_file, stderr=subprocess.STDOUT)
     return {"message": "Bot started"}
 
 @app.post("/api/bot/stop")
@@ -135,6 +149,9 @@ def approve_pr(req: ApprovalRequest):
         
     code_to_submit = req.edited_code if req.edited_code else target["proposed_fix"]
     modified_files = json.loads(target["modified_files"])
+    
+    # Ensure token is loaded into environment before init
+    load_env_from_config()
     
     # Initialize standalone CodeReviewer just for submission
     # We pass a dummy lambda for the event bus publish

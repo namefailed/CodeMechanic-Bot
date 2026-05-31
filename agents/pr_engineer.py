@@ -356,11 +356,13 @@ class PREngineer:
                         
                     logger.warning(f"PREngineer: Tests failed. Extracted traceback for AI.")
                     return False, extracted
-            except requests.exceptions.ReadTimeout:
-                logger.error("PREngineer: Tests timed out after 5 minutes! Killing container.")
-                container.stop()
-                container.remove(force=True)
-                return False, "Tests timed out and were killed to prevent infinite loops."
+            except Exception as test_err:
+                logger.error(f"PREngineer: Tests timed out or threw an exception! Killing container. Error: {test_err}")
+                try:
+                    container.stop(timeout=2)
+                    container.remove(force=True)
+                except: pass
+                return False, f"Tests timed out or failed to execute properly. Error: {test_err}"
         except Exception as e:
             logger.error(f"PREngineer: Docker error: {e}")
             return False, str(e)

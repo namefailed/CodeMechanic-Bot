@@ -78,11 +78,17 @@ class CodeReviewer:
         logger.info(f"CodeReviewer: Reviewing PR for {repo_name} locally...")
         
         prompt = (
-            f"Please review the following code patch for {repo_name}.\n"
-            "Check for security vulnerabilities, style issues, and performance regressions.\n\n"
+            f"You are a notoriously strict Staff Security Engineer and Code Reviewer. You despise 'AI slop' and low-quality PRs.\n"
+            f"Review the following code patch for {repo_name}.\n"
+            "Your job is to violently reject this patch if it contains ANY of the following:\n"
+            "- Syntax errors or incomplete logic (e.g. placeholder comments like 'TODO: implement').\n"
+            "- 'AI Slop': Overly verbose refactoring that was not requested, or removing necessary comments.\n"
+            "- Security vulnerabilities (SQLi, XSS, unescaped inputs).\n"
+            "- Failure to match the surrounding code style.\n\n"
             f"Code Patch:\n{proposed_fix}\n\n"
-            "IMPORTANT: If the code is perfectly safe to merge, you MUST end your response with exactly: [FINAL_STATUS: APPROVED]\n"
-            "If the code has issues or vulnerabilities, you MUST end your response with exactly: [FINAL_STATUS: REJECTED] and list the issues."
+            "IMPORTANT:\n"
+            "If the code is absolutely flawless and safe to merge, you MUST end your response with exactly: [FINAL_STATUS: APPROVED]\n"
+            "If the code has ANY issues, flaws, or smells of AI slop, you MUST end your response with exactly: [FINAL_STATUS: REJECTED] and list the specific issues so the author can fix them."
         )
         
         models = ["gemma4:e4b", "llama3", "mistral"]

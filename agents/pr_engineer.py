@@ -192,6 +192,11 @@ class PREngineer:
         except Exception as e:
             logger.error(f"PREngineer: Context Harvest failed: {e}")
             
+        # Hard limit the context to 15,000 characters (~3k-4k tokens) to prevent local model hallucination
+        if len(context) > 15000:
+            logger.warning("PREngineer: Context too large, truncating to 15k characters to protect local model.")
+            context = context[:15000] + "\n...[CONTEXT TRUNCATED]..."
+            
         return context
 
     def query_ai(self, prompt: str) -> str:
@@ -232,6 +237,15 @@ class PREngineer:
         for match in matches:
             filepath = match.group(1).strip()
             code = match.group(2)
+            
+            # Strip markdown wrappers if AI hallucinates them inside the tags
+            if code.startswith("```"):
+                code = re.sub(r'^```[a-zA-Z]*\n', '', code)
+            if code.endswith("```"):
+                code = code[:-3].rstrip()
+            if code.endswith("```\n"):
+                code = code[:-4].rstrip()
+                
             if ".." in filepath: continue
             full_path = os.path.join(repo_path, filepath.lstrip('/'))
             os.makedirs(os.path.dirname(full_path), exist_ok=True)
@@ -367,19 +381,28 @@ class PREngineer:
                 logger.info(f"PREngineer: Internal test retry {attempt}/{max_internal_retries}")
                 
             if not is_retry and attempt == 0:
-                prompt = f"""You are a senior open-source contributor.
+                prompt = f"""You are a senior open-source contributor. Your sole goal is to fix the described issue WITHOUT rewriting unrelated code.
 
 RULES:
-1. Read the existing code style and MATCH IT EXACTLY
-2. Write tests for every change
-3. Use the project's existing test framework
-4. Follow the commit message convention (look at git log)
-5. Keep changes minimal — fix only what the issue describes
-6. Never refactor unrelated code
-7. OUTPUT FORMAT REQUIRED: To modify a file, you MUST use XML tags. Do not use markdown backticks for the code. Output exactly like this:
-<file path="path/to/file.ext">
-entire file content here
+1. MATCH THE EXISTING CODE STYLE EXACTLY. Do not rename variables or change formatting unless necessary.
+2. DO NOT output 'AI Slop' (e.g., removing necessary comments, over-explaining in code comments, or adding massive refactors).
+3. Keep changes absolutely minimal — fix only what the issue describes.
+4. OUTPUT FORMAT REQUIRED: To modify a file, you MUST use XML tags. 
+DO NOT wrap the XML tags in markdown. DO NOT wrap the code inside the XML tags in markdown.
+
+GOOD EXAMPLE:
+<file path="src/utils.py">
+def helper():
+    return True
 </file>
+
+BAD EXAMPLE (DO NOT DO THIS):
+```python
+<file path="src/utils.py">
+def helper():
+    return True
+</file>
+```
 
 CONTEXT:
 {repo_context}
@@ -405,9 +428,15 @@ CONTEXT:
 {repo_context}
 
 Please provide a completely revised fix. 
-OUTPUT FORMAT REQUIRED: To modify a file, you MUST use XML tags. Do not use markdown backticks for the code. Output exactly like this:
-<file path="path/to/file.ext">
-entire file content here
+Please provide a completely revised fix that addresses the feedback. 
+
+OUTPUT FORMAT REQUIRED: To modify a file, you MUST use XML tags. 
+DO NOT wrap the XML tags in markdown. DO NOT wrap the code inside the XML tags in markdown.
+
+GOOD EXAMPLE:
+<file path="src/utils.py">
+def helper():
+    return True
 </file>"""
 
             try:

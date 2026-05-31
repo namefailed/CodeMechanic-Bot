@@ -1,21 +1,31 @@
-# Bug-Bot 🕷️💰
+# CodeMechanic-Bot 🤖🔧
 
-**Bug-Bot** is an autonomous, multi-agent AI system designed to hunt down paid open-source bounties across GitHub, Algora, and Polar, write the code fixes, and submit pull requests—all while you sleep.
+**CodeMechanic-Bot** is an autonomous, multi-agent AI system designed to hunt down paid open-source bounties AND proactively discover zero-day vulnerabilities in popular repositories.
 
-It was heavily inspired by the "ZKA Money Printer" experiments, but has been heavily refactored to be **100% autonomous**, robust, and actually profitable by avoiding scams and saturated bounties.
+Built on an event-driven architecture, it operates with strict anti-slop guidelines to ensure that all generated code is highly original, rigorously tested, and perfectly matches the target repository's style.
 
-## Key Features
+## The Dual-Thread Engine
 
-- **Patience Harvest & Speed Game**: Scans for abandoned bounties (>14 days old) and brand new bounties (<48 hours) to minimize competition.
-- **Scam Detection**: Automatically rejects honeypots and scam repositories that harvest free labor (e.g. repos with <5 stars or 0 historically merged PRs).
-- **Multi-Source Support**: Scans native GitHub bounties, as well as `algora` and `polar` labeled issues.
-- **Comment-First Strategy**: Posts a comment proposing a fix *before* doing the heavy lifting, building trust with maintainers.
-- **Context Harvesting**: Clones the repo to read `CONTRIBUTING.md` and commit history to ensure the AI's code matches the project's style perfectly.
-- **Context RAG**: Parses issue bodies and comments to extract referenced filenames, automatically injecting their source code into the LLM context so it never writes code blindly.
+The bot's Orchestrator runs two concurrent, highly synchronized loops:
+
+### 1. The Bounty Hunter
+Runs every 30 minutes to scan GitHub, Algora, and Polar for low-competition, high-value paid bounties.
+- **Patience Harvest & Speed Game**: Targets abandoned bounties or brand new ones.
+- **Scam Detection**: Automatically rejects honeypots and saturated repos.
+
+### 2. The Zero-Day Researcher
+Runs continuously in the background (pausing only when the Bounty Hunter wakes up) to audit massive open-source repositories for unknown vulnerabilities.
+- **Semgrep**: Scans for complex logic bugs and syntax vulnerabilities.
+- **Trivy**: Scans for Infrastructure-as-Code misconfigurations and outdated CVEs.
+- **Gitleaks**: Hunts for leaked API keys, database credentials, and webhooks (flagging them for manual review rather than public PRs).
+
+## Core Capabilities
+
+- **Strict Anti-Slop CodeReviewer**: A notoriously strict secondary agent that audits every generated patch. It will violently reject any proposed PR that smells like "AI Slop", removes necessary comments, or fails to precisely match the host repository's style.
+- **Few-Shot RAG Context**: Parses issue bodies and securely injects only highly-relevant source code into the local LLM's context, strictly capped to prevent hallucination on weaker machines.
 - **Docker Auto-Testing**: Spins up an Alpine container, dynamically installs the required toolchain (Node, Python, Rust), and executes the repository's test suite against the AI's generated code.
 - **Self-Healing LLM**: If local unit tests fail, the stderr logs are fed *back* into the LLM for up to 2 autonomous retry attempts before submitting.
 - **Multi-Model Fallbacks**: Uses `gemma4:e4b` locally via Ollama, but gracefully falls back to `llama3` or `mistral` if the primary model fails.
-- **Stealth Mode**: Commits directly to the workspace using standard git credentials and submits via the API, preventing "bot" labels on your PRs.
 
 ## Documentation
 
@@ -28,15 +38,12 @@ It was heavily inspired by the "ZKA Money Printer" experiments, but has been hea
    ```bash
    pip install -r requirements.txt
    ```
-2. Start your local Ollama server (or configure your preferred LLM in `config.yaml`).
-3. Create a `.env` file in the root directory and add your GitHub Token:
-   ```text
-   GITHUB_TOKEN=your_personal_access_token
-   ```
-4. Run the orchestrator in stealth mode:
+2. Start your local Ollama server and Docker daemon.
+3. Start the built-in Dashboard UI:
    ```bash
-   python orchestrator.py --stealth
+   uvicorn api.main:app --host 0.0.0.0 --port 8000
    ```
+4. Click "Start Bot" in the Web Dashboard.
 
 ## Disclaimer
-This bot is designed to contribute meaningfully to open-source software. Please do not use it to spam repositories with low-quality, AI-generated fluff.
+This machine account is operated heavily by @namefailed. It strictly adheres to anti-slop principles. Do not abuse this architecture to spam repositories with low-quality, AI-generated fluff.

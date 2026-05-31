@@ -129,9 +129,9 @@ document.addEventListener('DOMContentLoaded', () => {
             
             prContainer.innerHTML = data.map(pr => `
                 <div class="pr-card glass-panel">
-                    <div class="pr-status ${pr.status.toLowerCase()}">${pr.status}</div>
-                    <h3>${pr.repo}</h3>
-                    <a href="${pr.issue_url}" target="_blank" style="color: var(--accent); text-decoration: none; font-size: 0.9rem;">View Issue ↗</a>
+                    <div class="pr-status ${escapeHtml((pr.status || '').toLowerCase())}">${escapeHtml(pr.status)}</div>
+                    <h3>${escapeHtml(pr.repo)}</h3>
+                    <a href="${escapeHtml(pr.issue_url)}" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none; font-size: 0.9rem;">View Issue ↗</a>
                     <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 8px;">Updated: ${new Date(pr.updated_at).toLocaleString()}</div>
                 </div>
             `).join('');
@@ -196,7 +196,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Utils
     function escapeHtml(unsafe) {
-        return (unsafe || '').replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        return (unsafe == null ? '' : String(unsafe))
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
     }
 
     // Approvals Management
@@ -224,18 +229,27 @@ document.addEventListener('DOMContentLoaded', () => {
             approvalsContainer.innerHTML = data.map((pr, idx) => `
                 <div class="pr-card glass-panel" style="grid-column: 1 / -1;">
                     <div class="pr-status pending">AWAITING APPROVAL</div>
-                    <h3>${pr.repo_name} - #${pr.issue_number}</h3>
-                    <p><strong>Title:</strong> ${pr.issue_title}</p>
+                    <h3>${escapeHtml(pr.repo_name)} - #${escapeHtml(pr.issue_number)}</h3>
+                    <p><strong>Title:</strong> ${escapeHtml(pr.issue_title)}</p>
                     <div style="margin: 10px 0;">
                         <textarea id="approval-editor-${idx}"></textarea>
                     </div>
                     <p style="font-size: 0.85rem; color: #aaa;"><strong>Engine Review:</strong><br>${escapeHtml(pr.ai_summary)}</p>
                     <div style="display: flex; gap: 10px; margin-top: 15px;">
-                        <button class="action-btn" onclick="approvePR('${pr.issue_url}', ${idx})" style="background: var(--success); color: #000;">Approve & Submit</button>
-                        <button class="action-btn" onclick="rejectPR('${pr.issue_url}')" style="background: var(--danger); color: #fff;">Reject</button>
+                        <button class="action-btn approve-btn" data-issue-url="${escapeHtml(pr.issue_url)}" style="background: var(--success); color: #000;">Approve & Submit</button>
+                        <button class="action-btn reject-btn" data-issue-url="${escapeHtml(pr.issue_url)}" style="background: var(--danger); color: #fff;">Reject</button>
                     </div>
                 </div>
             `).join('');
+
+            // Wire buttons via listeners (not inline onclick) so untrusted issue URLs
+            // can never break out into HTML/JS.
+            approvalsContainer.querySelectorAll('.approve-btn').forEach(btn => {
+                btn.addEventListener('click', () => approvePR(btn.dataset.issueUrl));
+            });
+            approvalsContainer.querySelectorAll('.reject-btn').forEach(btn => {
+                btn.addEventListener('click', () => rejectPR(btn.dataset.issueUrl));
+            });
 
             // Initialize CodeMirror for each approval
             data.forEach((pr, idx) => {

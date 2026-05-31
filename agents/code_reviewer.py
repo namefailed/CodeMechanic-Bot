@@ -12,6 +12,7 @@ from urllib3.util.retry import Retry
 import subprocess
 from events import PRSubmittedEvent, PRRejectedEvent
 from utils.database import Database
+from utils.llm import get_ollama_config
 from typing import Callable, Any
 
 # Configure logging
@@ -36,6 +37,7 @@ class CodeReviewer:
         self.stealth_mode = stealth_mode
         self.github_token = os.environ.get("GITHUB_TOKEN", None)
         self.timeout = 600  # Network timeout in seconds (Increased for heavy local AI generation)
+        self.ollama_endpoint, self.ollama_models = get_ollama_config()
         self.db = Database()
 
     def run_with_retry(self, cmd: list, **kwargs):
@@ -91,12 +93,11 @@ class CodeReviewer:
             "If the code has ANY issues, flaws, or smells of AI slop, you MUST end your response with exactly: [FINAL_STATUS: REJECTED] and list the specific issues so the author can fix them."
         )
         
-        models = ["gemma4:e4b", "llama3", "mistral"]
         review_feedback = ""
-        for model in models:
+        for model in self.ollama_models:
             try:
                 response = requests.post(
-                    "http://localhost:11434/api/generate",
+                    f"{self.ollama_endpoint}/api/generate",
                     json={"model": model, "prompt": prompt, "stream": False},
                     timeout=self.timeout
                 )
@@ -105,6 +106,7 @@ class CodeReviewer:
                     from utils.logger import log_ollama_activity
                     log_ollama_activity("CodeReviewer", prompt, review_feedback)
                     break
+                logger.warning(f"CodeReviewer: Review model {model} returned HTTP {response.status_code}. Falling back...")
             except requests.exceptions.RequestException as e:
                 logger.warning(f"CodeReviewer: Review with {model} failed: {e}. Falling back...")
             
@@ -153,6 +155,7 @@ class CodeReviewer:
                 issue_url = payload.get('issue_url', '')
                 pr_api_url = pr_api_url_or_success if isinstance(pr_api_url_or_success, str) else None
                 self.db.mark_issue(issue_url, repo_name, "SUBMITTED", pr_api_url=pr_api_url)
+                payload['pr_api_url'] = pr_api_url
                 self.publish_event(PRSubmittedEvent(payload=payload))
             else:
                 logger.error(f"CodeReviewer: PR submission failed for {repo_name}. Aborting downstream events.")
@@ -214,7 +217,19 @@ class CodeReviewer:
             fork_res.raise_for_status()
             owner_login = fork_res.json().get("owner", {}).get("login")
             forked_repo_name = fork_res.json().get("name")
-            
+
+            # Fork creation is asynchronous on GitHub; wait until the fork is actually
+            # queryable before pushing, otherwise the push can 404 against a cold fork.
+            import time as _time
+            fork_full = f"{owner_login}/{forked_repo_name}"
+            for _ in range(15):
+                chk = session.get(f"https://api.github.com/repos/{fork_full}", headers=headers, timeout=30)
+                if chk.status_code == 200:
+                    break
+                _time.sleep(2)
+            else:
+                logger.warning(f"CodeReviewer: Fork {fork_full} not confirmed ready after wait; attempting push anyway.")
+
             try:
                 # Use -B to forcefully create or reset the branch, avoiding edge cases
                 self.run_with_retry(["git", "checkout", "-B", branch_name], cwd=workspace_path, capture_output=True, text=True)
@@ -280,9 +295,9 @@ class CodeReviewer:
             )
             
             ai_summary = ""
-            for model in ["gemma4:e4b", "llama3", "mistral"]:
+            for model in self.ollama_models:
                 try:
-                    res = requests.post("http://localhost:11434/api/generate", json={"model": model, "prompt": prompt, "stream": False}, timeout=120)
+                    res = requests.post(f"{self.ollama_endpoint}/api/generate", json={"model": model, "prompt": prompt, "stream": False}, timeout=120)
                     if res.status_code == 200:
                         ai_summary = res.json().get("response", "").strip()
                         from utils.logger import log_ollama_activity

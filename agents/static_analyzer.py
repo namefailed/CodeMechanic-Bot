@@ -1,7 +1,9 @@
 import os
 import time
+import shutil
 import logging
 import json
+import datetime
 import docker
 from typing import Callable, Any
 from utils.github_api import SafeGitHubSession
@@ -137,8 +139,7 @@ class StaticAnalyzer:
                     rule = leak.get("Description", "Secret Leak")
                     
                     # LOG IT INSTEAD OF SUBMITTING A PR
-                    from utils.logger import logger as main_logger
-                    main_logger.error(f"🚨 CRITICAL ALERT: Gitleaks found a leaked secret in {repo_name} -> {file} ({rule}) 🚨")
+                    logger.error(f"🚨 CRITICAL ALERT: Gitleaks found a leaked secret in {repo_name} -> {file} ({rule}) 🚨")
                     
                     # You could optionally save it to DB for manual review here.
                     
@@ -161,7 +162,9 @@ class StaticAnalyzer:
         headers = {"Authorization": f"token {self.github_token}", "Accept": "application/vnd.github.v3+json"}
         
         try:
-            res = session.get("https://api.github.com/search/repositories", params={"q": "stars:>500 pushed:>2026-05-25", "sort": "updated", "per_page": 5}, headers=headers)
+            # Rolling 30-day window of recently-pushed popular repos (was a hardcoded date).
+            recent = (datetime.datetime.utcnow() - datetime.timedelta(days=30)).strftime("%Y-%m-%d")
+            res = session.get("https://api.github.com/search/repositories", params={"q": f"stars:>500 pushed:>{recent}", "sort": "updated", "per_page": 5}, headers=headers)
             if res.status_code != 200:
                 return
             
@@ -174,10 +177,11 @@ class StaticAnalyzer:
 
                 repo_name = repo["full_name"]
                 repo_path = os.path.join(self.workspace_root, repo_name.replace("/", "_") + "_sa")
-                
+
+                # Start from a clean slate each cycle so old clones don't accumulate.
                 if os.path.exists(repo_path):
-                    continue
-                
+                    shutil.rmtree(repo_path, ignore_errors=True)
+
                 logger.info(f"StaticAnalyzer: Targeting {repo_name} for Security analysis.")
                 import git
                 try:
@@ -185,24 +189,28 @@ class StaticAnalyzer:
                 except Exception as e:
                     logger.warning(f"StaticAnalyzer: Failed to clone {repo_name}: {e}")
                     continue
-                
-                # 1. Semgrep
-                payload = self._run_semgrep(repo_path, repo_name)
-                
-                # 2. Trivy (if Semgrep didn't find anything)
-                if not payload:
-                    payload = self._run_trivy(repo_path, repo_name)
-                    
-                # 3. Gitleaks
-                secret_leak = self._run_gitleaks(repo_path, repo_name)
-                if secret_leak:
-                    logger.warning(f"StaticAnalyzer: Found leaked secret in {repo_name}. Manual review required.")
-                    # We don't automatically generate PRs for secrets to prevent exposing them in forks.
-                
-                if payload:
-                    logger.info(f"StaticAnalyzer: Found vulnerability in {repo_name}! Sending to PREngineer.")
-                    self.publish_event(BountyVerifiedEvent(payload=payload))
-                    break # One per cycle
-                    
+
+                try:
+                    # 1. Semgrep
+                    payload = self._run_semgrep(repo_path, repo_name)
+
+                    # 2. Trivy (if Semgrep didn't find anything)
+                    if not payload:
+                        payload = self._run_trivy(repo_path, repo_name)
+
+                    # 3. Gitleaks
+                    secret_leak = self._run_gitleaks(repo_path, repo_name)
+                    if secret_leak:
+                        logger.warning(f"StaticAnalyzer: Found leaked secret in {repo_name}. Manual review required.")
+                        # We don't automatically generate PRs for secrets to prevent exposing them in forks.
+
+                    if payload:
+                        logger.info(f"StaticAnalyzer: Found vulnerability in {repo_name}! Sending to PREngineer.")
+                        self.publish_event(BountyVerifiedEvent(payload=payload))
+                        break  # One per cycle
+                finally:
+                    # Don't let scanned clones pile up on disk.
+                    shutil.rmtree(repo_path, ignore_errors=True)
+
         except Exception as e:
             logger.error(f"StaticAnalyzer: Scan failed: {e}")

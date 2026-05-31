@@ -1,14 +1,11 @@
 import os
 import logging
 from typing import Callable, Any
-from events import BaseEvent
+from events import MaintainerFeedbackEvent
 from utils.github_api import SafeGitHubSession
 from utils.database import Database
 
 logger = logging.getLogger(__name__)
-
-class MaintainerFeedbackEvent(BaseEvent):
-    event_type = "MAINTAINER_FEEDBACK"
 
 class PRMaintainer:
     """

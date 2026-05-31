@@ -4,4 +4,6 @@ rich
 GitPython
 docker
 pydantic
-scikit-learn
+fastapi
+uvicorn
+psutil

@@ -33,3 +33,7 @@ class PRReviewedEvent(BaseEvent):
 @dataclass
 class PRRejectedEvent(BaseEvent):
     event_type: str = "PR_REJECTED"
+
+@dataclass
+class MaintainerFeedbackEvent(BaseEvent):
+    event_type: str = "MAINTAINER_FEEDBACK"

@@ -14,7 +14,7 @@ governance:
       
 model:
   provider: "ollama"
-  primary: "gemma4:e4b"
+  primary: "gemma3:4b"
   fallbacks:
     - "llama3"
     - "mistral"

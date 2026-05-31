@@ -3,10 +3,15 @@ import requests
 import time
 
 def main():
-    with open('c:/Users/grey/Projects/dev/CodeMechanic-Bot/.env', 'r') as f:
+    token = None
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+    with open(env_path, 'r') as f:
         for line in f:
             if line.startswith('GITHUB_TOKEN='):
                 token = line.strip().split('=', 1)[1]
+    if not token:
+        print("No GITHUB_TOKEN found in .env")
+        return
 
     headers = {
         'Accept': 'application/vnd.github.v3+json',

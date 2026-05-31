@@ -13,7 +13,7 @@ When you run `python orchestrator.py`, the orchestrator enters an infinite loop.
    - Uses the GitHub API to post a "Comment First" message proposing to work on the issue.
    - Clones the repository locally.
    - Harvests context (tests, `CONTRIBUTING.md`, recent commits).
-   - Queries the local AI (`gemma4:e4b`, with fallbacks to `llama3` and `mistral`) to generate a targeted patch.
+   - Queries the local AI (`gemma3:4b`, with fallbacks to `llama3` and `mistral`) to generate a targeted patch.
    - Tests the patch in a sandboxed Docker container (with daemon reconnection resilience).
    - Emits `PR_READY`.
 5. **CodeReviewer**: Listens for `PR_READY`.

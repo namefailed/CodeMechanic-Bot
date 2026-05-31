@@ -7,6 +7,7 @@ import sqlite3
 import yaml
 import json
 import os
+import sys
 import subprocess
 import psutil
 import asyncio
@@ -17,12 +18,22 @@ from agents.code_reviewer import CodeReviewer
 
 app = FastAPI()
 
+# This dashboard exposes privileged endpoints (start the bot, edit config, submit PRs)
+# and reads the GitHub token. It is a LOCAL tool: bind it to 127.0.0.1 (see __main__ /
+# the README) and restrict CORS to the local origin so other sites a browser visits
+# cannot read responses or forge cross-origin requests.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Keys that must never be sent to the browser.
+SECRET_CONFIG_KEYS = ("github_token",)
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "bounty_tracker.db")
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.yaml")
@@ -100,7 +111,9 @@ def start_bot(stealth: bool = False):
     if BOT_PROCESS and psutil.pid_exists(BOT_PROCESS.pid):
         return {"message": "Already running"}
     
-    cmd = ["python", "orchestrator.py"]
+    # Use the same interpreter that's running the API (the venv), not whatever
+    # "python" resolves to on PATH.
+    cmd = [sys.executable, "orchestrator.py"]
     if stealth:
         cmd.append("--stealth")
         
@@ -138,10 +151,23 @@ def get_config():
     if not os.path.exists(CONFIG_PATH):
         return {}
     with open(CONFIG_PATH, "r") as f:
-        return yaml.safe_load(f)
+        cfg = yaml.safe_load(f) or {}
+    # Never disclose secrets to the browser.
+    for key in SECRET_CONFIG_KEYS:
+        cfg.pop(key, None)
+    return cfg
 
 @app.post("/api/config")
 def save_config(config_data: dict):
+    # Preserve secret keys that were redacted from GET, so saving the dashboard's
+    # view does not silently wipe the stored token.
+    existing = {}
+    if os.path.exists(CONFIG_PATH):
+        with open(CONFIG_PATH, "r") as f:
+            existing = yaml.safe_load(f) or {}
+    for key in SECRET_CONFIG_KEYS:
+        if key not in config_data and key in existing:
+            config_data[key] = existing[key]
     with open(CONFIG_PATH, "w") as f:
         yaml.safe_dump(config_data, f)
     return {"message": "Config saved"}
@@ -290,3 +316,9 @@ def reject_pr(req: ApprovalRequest):
 
 if os.path.exists(UI_PATH):
     app.mount("/", StaticFiles(directory=UI_PATH, html=True), name="ui")
+
+if __name__ == "__main__":
+    import uvicorn
+    # Bind to loopback only — this dashboard can start the bot and holds the GitHub
+    # token. Do not expose it on 0.0.0.0 without adding authentication first.
+    uvicorn.run(app, host="127.0.0.1", port=8000)

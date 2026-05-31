@@ -11,6 +11,7 @@ import requests
 from events import PRReviewedEvent
 from typing import Callable, Any
 from utils.github_api import SafeGitHubSession
+from utils.database import Database
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -31,13 +32,15 @@ class ReviewTracker:
         self.publish_event = publish_event
         self.github_token = os.environ.get("GITHUB_TOKEN", None)
         self.timeout = 30  # Network timeout in seconds
+        self.db = Database()
 
     def track(self):
         """
-        Polls the GitHub API for PRs created by the authenticated user and
-        checks if there are any new review comments requesting changes.
+        Polls the GitHub API for open PRs authored by the bot and, for any that have
+        a formal "changes requested" review we haven't actioned yet, routes the
+        feedback back to the PREngineer via a PR_REVIEWED event.
         """
-        logger.info("ReviewTracker: Checking open PRs for feedback...")
+        logger.info("ReviewTracker: Checking open PRs for change requests...")
         if not self.github_token:
             logger.warning("ReviewTracker: No GITHUB_TOKEN. Skipping tracking.")
             return
@@ -46,24 +49,50 @@ class ReviewTracker:
             "Accept": "application/vnd.github.v3+json",
             "Authorization": f"token {self.github_token}"
         }
-        
+
         try:
-            url = "https://api.github.com/search/issues?q=is:pr is:open author:@me"
             session = SafeGitHubSession()
-            response = session.get(url, headers=headers, timeout=self.timeout)
+            response = session.get(
+                "https://api.github.com/search/issues",
+                params={"q": "is:pr is:open author:@me"},
+                headers=headers, timeout=self.timeout
+            )
             response.raise_for_status()
-            data = response.json()
-            items = data.get("items", [])
-            
-            for item in items:
-                pr_url = item.get("html_url")
-                logger.info(f"ReviewTracker: Polling PR {pr_url} for maintainer comments...")
-                
-                # In a real implementation, we would query the specific PR's comments
-                # and emit an event if there are unactioned requests for changes.
-                # Example:
-                # self.publish_event(PRReviewedEvent(payload={"pr_url": pr_url, "feedback": "Please fix X"}))
-                
+
+            for item in response.json().get("items", []):
+                pr_api = (item.get("pull_request") or {}).get("url")
+                if not pr_api:
+                    continue
+
+                reviews_res = session.get(f"{pr_api}/reviews", headers=headers, timeout=self.timeout)
+                if reviews_res.status_code != 200:
+                    continue
+
+                change_reviews = [r for r in reviews_res.json() if r.get("state") == "CHANGES_REQUESTED"]
+                if not change_reviews:
+                    continue
+
+                latest = change_reviews[-1]
+                review_key = f"review_{latest.get('id')}"
+                if self.db.is_comment_processed(review_key):
+                    continue
+                self.db.mark_comment_processed(review_key)
+
+                repo_name = item.get("repository_url", "").replace("https://api.github.com/repos/", "")
+                number = item.get("number")
+                feedback = latest.get("body") or "The maintainer requested changes on this PR."
+
+                logger.info(f"ReviewTracker: Change request on {repo_name} PR #{number}; routing to PREngineer.")
+                self.publish_event(PRReviewedEvent(payload={
+                    "repo": repo_name,
+                    "issue_title": item.get("title"),
+                    "issue_number": str(number),
+                    "issue_url": item.get("html_url"),
+                    "retry_count": 1,
+                    "reviewer_feedback": f"Maintainer review: {feedback}",
+                    "workspace_path": os.path.join(os.getcwd(), "workspaces", f"{repo_name.replace('/', '_')}_{number}"),
+                }))
+
         except requests.exceptions.RequestException as e:
             logger.error(f"ReviewTracker: Network error fetching PRs: {e}")
         except Exception as e:

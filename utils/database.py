@@ -7,7 +7,15 @@ logger = logging.getLogger(__name__)
 class Database:
     def __init__(self, db_path="bounty_tracker.db"):
         self.db_path = db_path
-        self.conn = sqlite3.connect(db_path, check_same_thread=False)
+        self.conn = sqlite3.connect(db_path, check_same_thread=False, timeout=30)
+        # WAL lets readers and a writer coexist; busy_timeout makes writers wait for a
+        # lock instead of failing instantly with "database is locked". This matters
+        # because several agent threads (and the API process) share this file.
+        try:
+            self.conn.execute("PRAGMA journal_mode=WAL;")
+            self.conn.execute("PRAGMA busy_timeout=30000;")
+        except Exception as e:
+            logger.warning(f"Database: failed to apply concurrency PRAGMAs: {e}")
         self._init_db()
         
     def _init_db(self):
@@ -67,6 +75,17 @@ class Database:
         except Exception as e:
             logger.error(f"Failed to get status for {issue_url}: {e}")
             return None
+
+    def get_earnings_summary(self) -> dict:
+        """Realized earnings: confirmed payouts only (not unmerged submissions)."""
+        try:
+            cur = self.conn.cursor()
+            cur.execute("SELECT COUNT(*), COALESCE(SUM(amount_earned), 0) FROM processed_issues WHERE status = 'PAYOUT_CONFIRMED'")
+            row = cur.fetchone()
+            return {"bounties_won": row[0] or 0, "total_earned": float(row[1] or 0.0)}
+        except Exception as e:
+            logger.error(f"Failed to compute earnings summary: {e}")
+            return {"bounties_won": 0, "total_earned": 0.0}
 
     def get_pending_issues(self) -> list:
         try:

@@ -53,7 +53,6 @@ class BountyRadar:
         Finds 'Speed Game' (new) and 'Patience Harvest' (abandoned) bounties.
         """
         logger.info("BountyRadar: Scanning GitHub for bounties...")
-        logger.info("BountyRadar: Scanning GitHub for bounties...")
 
         now = datetime.datetime.utcnow()
         two_days_ago = (now - datetime.timedelta(days=2)).strftime('%Y-%m-%dT%H:%M:%SZ')

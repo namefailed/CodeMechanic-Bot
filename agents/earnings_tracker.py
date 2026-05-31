@@ -7,6 +7,7 @@ import json
 import os
 import logging
 from typing import Callable, Any
+from utils.database import Database
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -26,31 +27,27 @@ class EarningsTracker:
         """
         self.publish_event = publish_event
         self.earnings_file = os.path.join(os.getcwd(), "earnings.json")
+        self.db = Database()
 
     def calculate_roi(self, payload: dict):
         """
-        Updates the local ledger with new earnings.
-        
-        Args:
-            payload: Dictionary containing PR details.
+        Recomputes the earnings ledger from confirmed payouts in the database.
+
+        Earnings reflect only bounties whose PRs were actually merged
+        (status PAYOUT_CONFIRMED), not every submission — so this no longer
+        invents a flat amount per PR.
         """
-        logger.info("EarningsTracker: Recalculating ROI...")
-        
-        earnings = {"total_usd": 0.0, "bounties_won": 0}
-        if os.path.exists(self.earnings_file):
-            try:
-                with open(self.earnings_file, "r") as f:
-                    earnings = json.load(f)
-            except Exception as e:
-                logger.warning(f"EarningsTracker: Could not read existing earnings file: {e}")
-                
-        # Simulate a bounty win (e.g. $50)
-        earnings["total_usd"] += 50.0
-        earnings["bounties_won"] += 1
-        
+        logger.info("EarningsTracker: Recalculating ROI from confirmed payouts...")
+
+        summary = self.db.get_earnings_summary()
+        earnings = {
+            "total_usd": round(summary["total_earned"], 2),
+            "bounties_won": summary["bounties_won"],
+        }
+
         try:
             with open(self.earnings_file, "w") as f:
                 json.dump(earnings, f, indent=4)
-            logger.info(f"EarningsTracker: Current Total Earnings: ${earnings['total_usd']}")
+            logger.info(f"EarningsTracker: Confirmed earnings: {earnings['total_usd']} across {earnings['bounties_won']} bounties.")
         except Exception as e:
             logger.error(f"EarningsTracker: Failed to update earnings: {e}")

@@ -1,0 +1,20 @@
+name: Sync Fork
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push to Bot Fork
+        run: |
+          git remote add bot-fork https://x-access-token:${{ secrets.BOT_GITHUB_TOKEN }}@github.com/CodeMechanic-Bot/CodeMechanic-Bot.git
+          git push bot-fork master --force
